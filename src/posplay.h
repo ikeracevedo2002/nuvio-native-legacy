@@ -21,12 +21,19 @@
 #include <SDL2/SDL.h>
 
 // Chamada por quadro pelo player, com a posicao e a duracao correntes.
+// `janelaSerie` diz se a serie ja esta na janela de "proximo episodio" — os
+// creditos rolando ou os dois minutos finais. Quem sabe isso e o player, que le
+// os marcos de introducao; o painel so decide o que mostrar.
 void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
-                       int ehSerie, int idxCatalogo);
+                       int ehSerie, int idxCatalogo, int janelaSerie);
 int  posplay_visivel(void);
-// 1 se consumiu a tecla.
+// 0 nao consumiu; 1 consumiu; 2 consumiu E o player deve mostrar os controles
+// (e o BAIXO: tira o painel do caminho e devolve a barra de tempo).
 int  posplay_evento(const SDL_Event *e);
-void posplay_desenhar(Uint32 agora);
+// `baseY` e a linha ACIMA da qual o painel cabe inteiro — o topo do que o
+// player ja desenha. Ancorar pela base, e nao por um y fixo, e o que impede o
+// painel de cair em cima da barra de tempo.
+void posplay_desenhar(Uint32 agora, float baseY);
 // Fecha e zera. Chamado quando o player abre outra coisa.
 void posplay_fechar(void);
 

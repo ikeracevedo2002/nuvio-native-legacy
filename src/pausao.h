@@ -66,15 +66,21 @@ void pausao_atualizar(float dt, Uint32 agora, int podeSubir, int idx,
                       const char *linhaEp);
 
 // 1 do quadro em que o painel aparece ate o quadro em que some por completo.
-// O player usa isto para recolher os controles: aqui eles NAO somem sozinhos
-// enquanto pausado (player.c:767), entao sem esta consulta o painel subiria por
-// cima da barra de botoes.
 int  pausao_visivel(void);
 
 // So chame com o painel de pe. Ver o enum acima.
 int  pausao_evento(const SDL_Event *e);
 
-void pausao_desenhar(Uint32 agora);
+// `baseY` e a linha ACIMA da qual o painel tem de caber inteiro — na pratica o
+// topo do que o player ja desenha (titulo e barra de progresso). O painel e
+// medido e ancorado por essa base, e nao por um y fixo: com um y fixo ele
+// brigava com a barra de tempo, que foi o defeito relatado. Os controles NAO
+// somem mais quando ele sobe; os dois convivem, empilhados.
+void pausao_desenhar(Uint32 agora, float baseY);
+
+// Folga entre a base do painel e a barra de progresso. Sem ela o cartao encosta
+// no trilho e os dois leem como uma coisa so.
+#define PAUSAO_FOLGA 28.0f
 
 // Fim da reproducao: zera o relogio e o painel. Sem isto o proximo filme
 // abriria com o cronometro do anterior ja meio andado.

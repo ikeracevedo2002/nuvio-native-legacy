@@ -639,8 +639,11 @@ static void saltar(int dir) {
 
 void player_evento(const SDL_Event *e) {
   // O painel de pos-reproducao come a tecla quando esta no ar; ele e a coisa
-  // mais recente na tela e o dono esta olhando para ele.
-  if (posplay_evento(e)) return;
+  // mais recente na tela e o dono esta olhando para ele. O 2 e o BAIXO: ele
+  // dispensa o painel E pede a barra de tempo de volta, que e o gesto que o
+  // dono descreveu ("se clicar para baixo ele sobe e mostra o player").
+  { int r = posplay_evento(e);
+    if (r) { if (r == 2) acordar(); return; } }
   if (!aberto || saindo || e->type != SDL_KEYDOWN) return;
   SDL_Keycode k = e->key.keysym.sym;
 
@@ -673,7 +676,9 @@ void player_evento(const SDL_Event *e) {
 
   if (!visivel) {
     if (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) {
-      if(ofertaProximo()) { const CatEp*p=player_proximo_episodio();pedProxT=p->temporada;pedProxE=p->episodio;return; }
+      // O proximo episodio NAO e mais tratado aqui: posplay_evento roda antes
+      // de tudo em player_evento e ja consome o OK enquanto o cartao esta no
+      // ar. Manter esta linha faria o OK disparar a troca duas vezes.
       { double fim;int tipo;if(intro_ativo(posSeg,&fim,&tipo)&&tipo!=INTRO_CREDITOS){
           posSeg=(float)fim+.25f;if(comVideo)video_buscar(posSeg);return; } }
       alternarTocando(); acordar(); return;
@@ -783,7 +788,8 @@ void player_atualizar(float dt, Uint32 agora) {
   // PÓS-REPRODUÇÃO: o proximo episodio ou os relacionados, no fim do titulo.
   { const CatItem *ci = cat_item(idx);
     int eSerie = ci && !strcmp(ci->tipo, "series");
-    posplay_atualizar(dt, agora, posSeg, duracaoSeg, eSerie, idx); }
+    posplay_atualizar(dt, agora, posSeg, duracaoSeg, eSerie, idx,
+                      eSerie && ofertaProximo()); }
   // Com o painel no ar os controles nao somem: eles sao a saida do dono.
   if (posplay_visivel()) ultimoInput = agora;
 
@@ -809,12 +815,12 @@ void player_atualizar(float dt, Uint32 agora) {
                    !episodios_aberto() && !stream_folha_aberta() &&
                    !faixas_aberta() && !ofertaProximo() && !posplay_visivel(),
                    idx, linhaEp);
-  // Com o painel de pe os controles saem de cena. Aqui eles NAO somem sozinhos
-  // enquanto pausado (a regra logo acima), entao sem esta linha o painel subiria
-  // por cima da barra de botoes e as duas coisas disputariam a mesma metade da
-  // tela. Basta zerar o alvo: a mola cuida da transicao, e a primeira tecla
-  // derruba o painel e chama acordar(), que traz a barra de volta.
-  if (pausao_visivel()) visivel = 0;
+  // Os controles NAO saem mais de cena quando o painel sobe. A primeira versao
+  // os recolhia para os dois nao disputarem a mesma metade da tela; o dono
+  // testou e pediu o contrario — quer a ficha E a barra de tempo, com a ficha
+  // por cima dela. Agora quem se afasta e o painel, que e medido e ancorado
+  // acima do que o player desenha (ver pausao_desenhar).
+  if (pausao_visivel()) acordar();
 
   anim = anim_mola(anim, visivel ? 1.0f : 0.0f, dt,
                    visivel ? NV_MOLA_FOCO : NV_MOLA_DESFOCO);
@@ -918,17 +924,15 @@ static void desenharLegendaExterna(void){
 static void desenharAcoesEpisodio(void){
   const CatEp *prox=player_proximo_episodio();double fim;int tipo=0;
   int trecho=intro_ativo(posSeg,&fim,&tipo);
-  if(ofertaProximo()&&prox){
-    GfxRect p={420,720,1080,194};gfx_cor(p,.10f,.045f,.045f,.05f,.94f*entrada);
-    gfx_rect(p,0,GFX_ANEL,0,.008f,0,.10f,1,1,1,.20f*entrada);
-    const char *arte=prox->thumb[0]?prox->thumb:(item()&&item()->backdrop[0]?item()->backdrop:NULL);
-    if(arte){GLuint tx=tex_obter_larg(arte,288);if(tx){gfx_tex_aspect_atual=tex_aspecto(arte);gfx_rect((GfxRect){450,738,288,158},tx,GFX_CARD,0,0,0,.08f,1,1,1,entrada);gfx_tex_aspect_atual=0;}}
-    TxtLinha l=txt_linha(TXT_PLR_CORPO,"Próximo episódio",205,207,213,255);txt_desenhar_alpha(l,782,752,entrada);
-    char nome[220];snprintf(nome,sizeof nome,"T%dE%d · %s",prox->temporada,prox->episodio,prox->nome);
-    TxtLinha t=txt_linha_corta(TXT_PLR_TITULO,nome,250,250,252,255,430);txt_desenhar_alpha(t,782,794,entrada);
-    GfxRect bot={1240,775,220,76};gfx_cor(bot,.5f,.08f,.08f,.09f,.96f*entrada);gfx_rect(bot,0,GFX_ANEL,0,.018f,0,.5f,1,1,1,.35f*entrada);
-    gfx_icone((GfxRect){1264,793,40,40},"play",1,1,1,entrada);TxtLinha rt=txt_linha(TXT_BODY,"Reproduzir",246,246,248,255);txt_desenhar_alpha(rt,1310,797,entrada);
-  } else if(trecho&&tipo!=INTRO_CREDITOS){
+  // A CAIXA DE "Próximo episódio" QUE FICAVA AQUI FOI APAGADA. Era um retangulo
+  // de posicao fixa em {420,720} que caia por cima da barra de tempo, sem foco
+  // e sem parecer clicavel — o dono fotografou. O proximo episodio agora e um
+  // cartao no molde do de episodios.c, desenhado por posplay.c, ancorado acima
+  // dos controles e com a mesma janela de aparicao que esta caixa usava
+  // (ofertaProximo). Duas interfaces para a mesma coisa na mesma tela era o
+  // defeito de fundo; sobrou uma.
+  (void)prox;
+  if(trecho&&tipo!=INTRO_CREDITOS){
     const char *rot=tipo==INTRO_RESUMO?"Pular resumo":"Pular abertura";
     TxtLinha t=txt_linha(TXT_BODY,rot,250,250,252,255);float w=t.w+116;
     GfxRect p={64,730,w,88};gfx_cor(p,.5f,.075f,.075f,.085f,.94f*entrada);
@@ -1047,10 +1051,17 @@ void player_desenhar(Uint32 agora) {
   /* Permanecem quando os controles somem: sao conteudo, nao chrome do player. */
   desenharLegendaExterna();
   desenharAcoesEpisodio();
-  // ANTES do corte por `a`: o painel de pausa e o que substitui os controles,
-  // e desenha-lo depois do `return` de "tocando limpo" faria dele um painel que
-  // so aparece quando ja ha barra na tela — o oposto do que ele e.
-  pausao_desenhar(agora);
+  // ANTES do corte por `a`: desenha-lo depois do `return` de "tocando limpo"
+  // faria dele um painel que so aparece quando ja ha barra na tela.
+  //
+  // A BASE e a mesma linha que a barra de progresso usa, menos uma folga. Com
+  // os controles agora convivendo com o painel, um y fixo poria os dois no
+  // mesmo lugar — foi o "layer quebrado" que o dono viu. Este calculo repete o
+  // de desenharControles de proposito: la ele depende de `desce`, que so existe
+  // durante a animacao de entrada dos controles, e amarrar o painel a isso o
+  // faria tremer junto.
+  { float yRow = NV_TELA_H - PLR_PAD_Y - PLR_BTN_D;
+    pausao_desenhar(agora, yRow - PLR_GAP_ROW - PLR_TRILHO_H - PAUSAO_FOLGA); }
 
   float a = anim * entrada;
   if (a <= 0.005f) return;   // tocando limpo: nada por cima da imagem
@@ -1158,6 +1169,10 @@ void player_desenhar(Uint32 agora) {
   // Texto tambem e o que o resto da tela usa (o relogio, o tempo, os selos),
   // entao o canto passa a ter UMA gramatica so.
   float hTit, yTit;
+  // Com o painel de pausa de pe o titulo sai daqui: o painel ja o mostra, maior
+  // e com a ficha junto. Dois titulos empilhados a 40px um do outro foi
+  // exatamente o que a foto mostrou.
+  if (!pausao_visivel())
   { const char *nome = (c && c->titulo[0]) ? c->titulo : "Reproduzindo";
     TxtLinha lt = txt_linha_corta(TXT_PLR_TITULO, nome, 255, 255, 255, 255,
                                   cw * 0.62f);
@@ -1351,5 +1366,7 @@ void player_desenhar(Uint32 agora) {
   }
 
   // POR CIMA DE TUDO: o painel de pos-reproducao e o mais recente na tela.
-  posplay_desenhar(agora);
+  // Ancorado pela MESMA base do painel de pausa, para nao cair sobre a barra.
+  { float yRow = NV_TELA_H - PLR_PAD_Y - PLR_BTN_D;
+    posplay_desenhar(agora, yRow - PLR_GAP_ROW - PLR_TRILHO_H - PAUSAO_FOLGA); }
 }
