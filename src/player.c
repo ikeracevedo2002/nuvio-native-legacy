@@ -491,12 +491,26 @@ static PlrRect aspectoVisivel(int modo) {
 // Subir para 0.62 devolve 346 de espaco e os cartoes voltam a cobrir o filme.
 #define PLR_ENC_ALVO      0.52f   // fracao da tela que o video ocupa recuado
 #define PLR_ENC_TOPO      48.0f   // respiro acima do video quando recuado
-#define PLR_ENC_PASSOS       6
-#define PLR_ENC_MS         70u    // entre um degrau e o seguinte
+// Mais degraus e mais curtos que a primeira versao (eram 6 x 70 ms), e com
+// CURVA em vez de passo constante: o dono viu e pediu mais fluidez. O custo
+// continua sendo uma chamada ao pipeline por degrau, entao a fluidez vem
+// principalmente da curva — comecar e terminar devagar esconde a natureza
+// discreta do movimento muito melhor que dobrar o numero de chamadas.
+#define PLR_ENC_PASSOS      12
+#define PLR_ENC_MS         38u    // entre um degrau e o seguinte
 
 static float  encolhe = 1.0f;     // 1 = tela cheia
 static float  encolheAlvo = 1.0f;
+static float  encolheT;           // 0 = tela cheia, 1 = recuado
 static Uint32 encolheEm;
+
+// Aceleracao e desaceleracao simetricas (smoothstep). Sem ela os degraus sao
+// todos do mesmo tamanho e o olho le cada um deles.
+static float suaveEnc(float t) {
+  if (t <= 0.0f) return 0.0f;
+  if (t >= 1.0f) return 1.0f;
+  return t * t * (3.0f - 2.0f * t);
+}
 
 // O destino do plano, ja com o recuo aplicado. Ancorado no ALTO: o painel vive
 // no rodape, entao o espaco que se abre tem de ser embaixo.
@@ -594,7 +608,7 @@ void player_abrir(int indiceCatalogo, const char *url) {
   // Titulo novo: um avanco em curso do anterior mandaria a posicao velha ao
   // pipeline novo assim que o silencio vencesse.
   scrubbing = 0; scrubPassos = 0; scrubTocava = 0;
-  encolhe = encolheAlvo = 1.0f; encolheEm = 0;
+  encolhe = 1.0f; encolheAlvo = 0.0f; encolheT = 0.0f; encolheEm = 0;
   posplay_fechar();   // titulo novo, painel do anterior nao vale mais
   // Guia parental do titulo: pedido AQUI e nao no desenho, para que a resposta
   // ja tenha chegado quando os controles aparecerem pela primeira vez.
@@ -905,16 +919,17 @@ void player_atualizar(float dt, Uint32 agora) {
   // RECUO DO VIDEO: alvo pelo painel de creditos, e o caminho ate ele em poucos
   // degraus espacados. `encolheEm` e o proximo instante permitido — sem ele
   // isto viraria uma chamada ao pipeline por quadro.
-  encolheAlvo = (posplay_visivel() && comVideo) ? PLR_ENC_ALVO : 1.0f;
-  if (encolhe != encolheAlvo && agora >= encolheEm) {
-    float passo = (1.0f - PLR_ENC_ALVO) / (float)PLR_ENC_PASSOS;
-    if (encolhe < encolheAlvo) {
-      encolhe += passo;
-      if (encolhe > encolheAlvo) encolhe = encolheAlvo;
+  encolheAlvo = (posplay_visivel() && comVideo) ? 1.0f : 0.0f;   // agora e o T
+  if (encolheT != encolheAlvo && agora >= encolheEm) {
+    float passo = 1.0f / (float)PLR_ENC_PASSOS;
+    if (encolheT < encolheAlvo) {
+      encolheT += passo;
+      if (encolheT > encolheAlvo) encolheT = encolheAlvo;
     } else {
-      encolhe -= passo;
-      if (encolhe < encolheAlvo) encolhe = encolheAlvo;
+      encolheT -= passo;
+      if (encolheT < encolheAlvo) encolheT = encolheAlvo;
     }
+    encolhe = 1.0f - (1.0f - PLR_ENC_ALVO) * suaveEnc(encolheT);
     encolheEm = agora + PLR_ENC_MS;
     aplicarAspecto();
   }
@@ -1228,6 +1243,23 @@ void player_desenhar(Uint32 agora) {
   // outro nao desloca nada na tela.
   pausao_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
 
+  // O PAINEL DE POS-REPRODUCAO DESENHA AQUI, e o lugar importa.
+  //
+  // Ele estava no FIM desta funcao, depois do `return` de "tocando limpo" logo
+  // abaixo. Enquanto ele nao mexia nos controles, tudo bem — havia barra na
+  // tela, `a` era alto e o return nao disparava. Quando ele passou a recolher
+  // os controles para ocupar o rodape sozinho, passou a se apagar: `a` caia a
+  // zero, a funcao voltava antes da ultima linha e o painel nunca era
+  // desenhado. O video encolhia (isso mora em player_atualizar) e o que sobrava
+  // era tela preta — os dois sintomas relatados, o "pisca e nao aparece" ao
+  // abrir pelo botao e o "diminuiu mas ficou tudo preto" nos creditos, eram
+  // este mesmo return.
+  //
+  // BASE NA MARGEM INFERIOR: com o video recuado, o painel ocupa o espaco que
+  // se abriu. Ancorar acima da barra desperdicaria a faixa que o recuo existe
+  // para criar.
+  posplay_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
+
   float a = anim * entrada;
   if (a <= 0.005f) return;   // tocando limpo: nada por cima da imagem
 
@@ -1532,9 +1564,4 @@ void player_desenhar(Uint32 agora) {
 
   // POR CIMA DE TUDO: o painel de pos-reproducao e o mais recente na tela.
   // Ancorado pela MESMA base do painel de pausa, para nao cair sobre a barra.
-  // BASE NA MARGEM INFERIOR, e nao acima da barra: com o video recuado os
-  // controles saem de cena (logo abaixo) e o painel ocupa o espaco que se
-  // abriu. Ancorar acima da barra desperdicaria justamente a faixa que o recuo
-  // do video existe para criar.
-  posplay_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
 }

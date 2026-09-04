@@ -15,9 +15,12 @@
 
 // Constantes do web 1.0.6 (postPlayRecommendationController), nao escolhidas
 // aqui: 90% para filme, 5 s de contagem final.
-// Trocado pelo tempo restante: ver a nota em posplay_atualizar. Fica registrado
-// que o web usa 90% para nao parecer que o numero se perdeu.
-#define PP_FILME_FIM_S    180.0
+// Recuo para filme SEM capitulo. Proporcional, com piso e teto: ver a nota em
+// posplay_atualizar. Fica registrado que o web usa 90% para nao parecer que o
+// numero se perdeu — 90% de 105 min sao dez minutos antes do fim.
+#define PP_FILME_FRAC     0.045
+#define PP_FILME_MIN_S    150.0
+#define PP_FILME_MAX_S    330.0
 #define PP_CONTAGEM_S     5
 
 // Cartazes dos relacionados, no tamanho da grade de "Ver tudo".
@@ -125,20 +128,21 @@ void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
     // existe para resolver.
     deveAparecer = 0;
   } else {
-    // FILME SEM CAPITULOS: os ultimos minutos, e nao os 90% do web.
+    // FILME SEM CAPITULOS — e o caso comum, porque MUITA fonte e MP4 e nao
+    // Matroska. MEDIDO no log da TV: "mkv: fonte e MP4, sonda dispensada".
+    // Capitulo so existe no MKV; num MP4 nao ha o que ler e nao ha marcador.
     //
-    // O dono viu o painel subir ANTES dos creditos e pediu "o marcador correto
-    // de onde comecam os creditos". ELE NAO EXISTE PARA FILME, e e melhor
-    // dizer isso do que fingir: o unico marcador deste app vem do introdb, que
-    // e pedido em player.c:222 SO para serie e cuja API exige temporada e
-    // episodio (intro.c:28). Filme nunca teve segmento nenhum.
-    //
-    // Entao a regra do web e trocada por uma que erra menos. 90% de um filme de
-    // 105 min sao dez minutos antes do fim — foi o que apareceu cedo demais.
-    // Os creditos finais raramente passam de tres minutos, e um painel que sobe
-    // dentro deles incomoda menos do que um que rouba o desfecho.
-    double resta = durSeg - posSeg;
-    deveAparecer = (resta > 0.0 && resta <= (double)PP_FILME_FIM_S);
+    // Sem marcador, so resta estimar, e a estimativa e PROPORCIONAL a duracao.
+    // Fixar minutos erra nos dois extremos: 3 min sobem com os creditos ja
+    // rolando num filme longo (a queixa) e 8 min roubam o desfecho de um curto.
+    // Credito costuma ficar perto de 4,5% do filme, com piso e teto para os
+    // casos que fogem da regra.
+    double janela = durSeg * PP_FILME_FRAC;
+    double resta;
+    if (janela < PP_FILME_MIN_S) janela = PP_FILME_MIN_S;
+    if (janela > PP_FILME_MAX_S) janela = PP_FILME_MAX_S;
+    resta = durSeg - posSeg;
+    deveAparecer = (resta > 0.0 && resta <= janela);
   }
 
   // Saiu da zona (o dono voltou o filme): a dispensa perde a validade e o
@@ -146,6 +150,9 @@ void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
   if (!deveAparecer) dispensado = 0;
 
   if (deveAparecer && !visivel && !dispensado) {
+    if (!ehSerie)
+      printf("[posplay] relacionados em %.0fs de %.0fs (%s)\n", posSeg, durSeg,
+             creditosSeg > 1.0 ? "capitulo de creditos" : "estimativa, sem capitulo");
     idx = idxCatalogo;
     serie = ehSerie;
     foco = 0;
