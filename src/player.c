@@ -57,6 +57,18 @@
 // Salto de 10s do avanca/retrocede. E o passo do controle da Apple, e ele so
 // vale com os controles em pe: cegamente, seta seria um pulo invisivel.
 #define PLR_SALTO_SEG    10.0f
+// AVANCO SEGURADO: o passo cresce enquanto a tecla continua repetindo. Sem
+// isto, atravessar meia hora de filme a 10 s por toque sao 180 toques — foi a
+// queixa. Os degraus dobram e param em 120 s: mais que isso e impossivel parar
+// onde se quer, porque cada repeticao pula mais do que a pessoa consegue ler.
+#define PLR_SALTO_D1      6     // repeticoes ate 30 s
+#define PLR_SALTO_D2     14     // ate 60 s
+#define PLR_SALTO_D3     26     // ate 120 s
+// Sem tecla por este tempo, o avanco termina: manda a posicao ao pipeline e
+// retoma. 420 ms e maior que o intervalo de repeticao do controle (que na C9
+// fica perto de 100 ms) e menor que o tempo de reacao de quem soltou de
+// proposito.
+#define PLR_SCRUB_FIM_MS  420u
 // Duracao de reserva, em segundos, para quando o `meta` do catalogo nao traz
 // tempo de filme (as series trazem "3 temporadas", que nao e duracao de nada).
 // 1h54 e so um numero plausivel para o layout ter o que mostrar — assim que o
@@ -146,6 +158,10 @@
 // Transporte compacto. Os saltos continuam acessiveis pelas setas na barra.
 enum { PLR_PLAY, PLR_ASPECTO, PLR_CC, PLR_AUDIO,
        PLR_FONTES, PLR_EPISODIOS, PLR_NBTNS };
+
+// Avanco em curso: enquanto vale, posSeg e do DONO e nao do pipeline.
+static int    scrubbing, scrubPassos, scrubTocava;
+static Uint32 scrubUltimo;
 
 static int   aberto = 0, saindo = 0, pediuSair = 0;
 static int   idx = 0;
@@ -455,6 +471,48 @@ static PlrRect aspectoVisivel(int modo) {
   return d;
 }
 
+// ENCOLHER O VIDEO PARA O PAINEL DE CREDITOS.
+//
+// Pedido do dono, "que nem o Netflix": quando os creditos comecam, o filme
+// recua para um canto e os cartoes ficam FORA da imagem, em vez de por cima
+// dela. Aqui isso nao e um transform de CSS — o video e um plano de hardware
+// atras da superficie GL, e recuar significa mandar ao ACB um retangulo de
+// destino menor (ver a nota extensa em video_janela).
+//
+// NAO ANIMADO POR QUADRO, e essa e a decisao que importa: cada mudanca e uma
+// chamada luna ao pipeline, e este arquivo ja registra que mandar quatro
+// posicoes seguidas de seek precedeu a morte do pipeline. Sao poucos degraus,
+// espacados, e o resultado le como movimento sem transformar um efeito visual
+// numa enxurrada de comandos no aparelho.
+// 0.52 e 48 nao sao gosto, sao a conta de caber. O painel de relacionados mede
+// cabecalho (~40) + 18 + cartaz (318) + rotulo (44) = ~420. Com o video a 52%
+// de 1080 e 48 de respiro no topo, ele termina em 609 e sobram 471 ate a
+// margem inferior — o painel entra inteiro ABAIXO da imagem, que era o pedido.
+// Subir para 0.62 devolve 346 de espaco e os cartoes voltam a cobrir o filme.
+#define PLR_ENC_ALVO      0.52f   // fracao da tela que o video ocupa recuado
+#define PLR_ENC_TOPO      48.0f   // respiro acima do video quando recuado
+#define PLR_ENC_PASSOS       6
+#define PLR_ENC_MS         70u    // entre um degrau e o seguinte
+
+static float  encolhe = 1.0f;     // 1 = tela cheia
+static float  encolheAlvo = 1.0f;
+static Uint32 encolheEm;
+
+// O destino do plano, ja com o recuo aplicado. Ancorado no ALTO: o painel vive
+// no rodape, entao o espaco que se abre tem de ser embaixo.
+static PlrRect destinoComRecuo(PlrRect d) {
+  float k = encolhe;
+  PlrRect o;
+  if (k > 0.999f) return d;
+  o.w = d.w * k;
+  o.h = d.h * k;
+  o.x = d.x + (d.w - o.w) * 0.5f;
+  o.y = PLR_ENC_TOPO;
+  if (o.y + o.h > NV_TELA_H) o.y = NV_TELA_H - o.h;
+  if (o.y < 0.0f) o.y = 0.0f;
+  return o;
+}
+
 // Manda o modo ao plano de hardware. Chamado na abertura, na troca de modo e
 // quando o videoInfo chega — antes dele a proporcao do quadro e chute, e o modo
 // calculado com o chute estaria errado justamente nos filmes widescreen, que
@@ -488,8 +546,9 @@ static void aplicarAspecto(void) {
   // no caminho antigo, que serve ao caso sem recorte — e o unico em que ele
   // funciona. Assim que o videoInfo chegar, aplicarAspecto roda de novo.
   if (qw < 2.0f || qh < 2.0f) {
-    video_janela((int)(d.x + 0.5f), (int)(d.y + 0.5f),
-                 (int)(d.w + 0.5f), (int)(d.h + 0.5f));
+    PlrRect o = destinoComRecuo(d);
+    video_janela((int)(o.x + 0.5f), (int)(o.y + 0.5f),
+                 (int)(o.w + 0.5f), (int)(o.h + 0.5f));
     return;
   }
 
@@ -507,9 +566,13 @@ static void aplicarAspecto(void) {
   if (sx + sw > (int)qw) sw = (int)qw - sx;
   if (sy + sh > (int)qh) sh = (int)qh - sy;
 
-  video_janela_fonte(sx, sy, sw, sh,
-                     (int)(d.x + 0.5f), (int)(d.y + 0.5f),
-                     (int)(d.w + 0.5f), (int)(d.h + 0.5f));
+  // A FONTE sai do `d` inteiro e o DESTINO e o recuado: e o mesmo conteudo,
+  // menor. Calcular a fonte a partir do retangulo ja recuado espremeria a
+  // imagem, porque o recuo mudaria a regra de tres sem mudar o quadro.
+  { PlrRect o = destinoComRecuo(d);
+    video_janela_fonte(sx, sy, sw, sh,
+                       (int)(o.x + 0.5f), (int)(o.y + 0.5f),
+                       (int)(o.w + 0.5f), (int)(o.h + 0.5f)); }
 }
 
 void player_aspecto_definir(int modo) {
@@ -528,6 +591,10 @@ void player_abrir(int indiceCatalogo, const char *url) {
   int n = cat_n(); if (n < 1) n = 1;
   idx = ((indiceCatalogo % n) + n) % n;
   aberto = 1; saindo = 0; pediuSair = 0; barraFoco = 0;
+  // Titulo novo: um avanco em curso do anterior mandaria a posicao velha ao
+  // pipeline novo assim que o silencio vencesse.
+  scrubbing = 0; scrubPassos = 0; scrubTocava = 0;
+  encolhe = encolheAlvo = 1.0f; encolheEm = 0;
   posplay_fechar();   // titulo novo, painel do anterior nao vale mais
   // Guia parental do titulo: pedido AQUI e nao no desenho, para que a resposta
   // ja tenha chegado quando os controles aparecerem pela primeira vez.
@@ -636,13 +703,50 @@ static void alternarTocando(void) {
   if (comVideo) video_pausar(!tocando);
 }
 
-// Salto de 10s com limite. So vale com os controles em pe: cegamente, seta
-// seria um pulo invisivel — com os botoes, quem aperta esta olhando para um
-// botao que diz «10 / 10».
+// AVANCO. So vale com os controles em pe: cegamente, seta seria um pulo
+// invisivel — com os botoes, quem aperta esta olhando para a barra.
+//
+// TRES COISAS QUE ESTAVAM ERRADAS AQUI, todas relatadas depois de usar:
+//
+// 1. Passo fixo de 10 s. Segurando a tecla, chegar ao fim de um filme levava
+//    centenas de repeticoes. Agora o passo cresce com a insistencia.
+//
+// 2. A barra VOLTAVA sozinha para onde estava. A causa nao era o salto: e que
+//    player_atualizar reescreve posSeg com video_pos() a cada quadro, e o
+//    comando ao pipeline e adiado 350 ms de proposito (SEEK_REPOUSO_MS, para
+//    nao mandar quatro posicoes quando o dono quis uma). No vao entre uma coisa
+//    e outra, a posicao real ainda era a antiga e apagava a que o dono acabou
+//    de escolher. Enquanto se avanca, quem manda em posSeg e o avanco.
+//
+// 3. Avancar TOCANDO fazia o icone de carga e o painel piscarem: cada salto
+//    mexia no pipeline com o video correndo. Agora o video PAUSA ao comecar o
+//    avanco e volta a tocar sozinho ao terminar, se estava tocando — e o
+//    pipeline recebe UMA posicao, no fim, em vez de uma por toque.
 static void saltar(int dir) {
-  posSeg += dir * PLR_SALTO_SEG;
+  float passo = PLR_SALTO_SEG;
+  if (!scrubbing) {
+    scrubbing = 1;
+    scrubPassos = 0;
+    scrubTocava = tocando;
+    if (tocando && comVideo) { video_pausar(1); tocando = 0; }
+  }
+  scrubPassos++;
+  if      (scrubPassos > PLR_SALTO_D3) passo = PLR_SALTO_SEG * 12.0f;
+  else if (scrubPassos > PLR_SALTO_D2) passo = PLR_SALTO_SEG * 6.0f;
+  else if (scrubPassos > PLR_SALTO_D1) passo = PLR_SALTO_SEG * 3.0f;
+  posSeg += dir * passo;
   posSeg = anim_clamp(posSeg, 0.0f, duracaoSeg);
-  if (comVideo) video_buscar(posSeg);
+  scrubUltimo = SDL_GetTicks();
+}
+
+// Fim do avanco: manda a posicao escolhida e devolve o estado de antes.
+static void terminarSalto(void) {
+  if (!scrubbing) return;
+  scrubbing = 0;
+  if (comVideo) {
+    video_buscar(posSeg);
+    if (scrubTocava) { video_pausar(0); tocando = 1; }
+  }
 }
 
 void player_evento(const SDL_Event *e) {
@@ -693,6 +797,15 @@ void player_evento(const SDL_Event *e) {
     }
     if (k == SDLK_UP || k == SDLK_DOWN || k == SDLK_LEFT || k == SDLK_RIGHT)
       acordar();
+    return;
+  }
+
+  // OK no meio de um avanco CONFIRMA o avanco, em vez de alternar play/pausa.
+  // Quem aperta o centro com a barra correndo quer parar ali, e alternar o
+  // estado deixaria o filme pausado no ponto novo — meio comando executado.
+  if (scrubbing && (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE)) {
+    terminarSalto();
+    acordar();
     return;
   }
 
@@ -789,9 +902,32 @@ void player_atualizar(float dt, Uint32 agora) {
     if (lw != ultLarg || lh != ultAlt) { ultLarg = lw; ultAlt = lh; aplicarAspecto(); }
   }
 
+  // RECUO DO VIDEO: alvo pelo painel de creditos, e o caminho ate ele em poucos
+  // degraus espacados. `encolheEm` e o proximo instante permitido — sem ele
+  // isto viraria uma chamada ao pipeline por quadro.
+  encolheAlvo = (posplay_visivel() && comVideo) ? PLR_ENC_ALVO : 1.0f;
+  if (encolhe != encolheAlvo && agora >= encolheEm) {
+    float passo = (1.0f - PLR_ENC_ALVO) / (float)PLR_ENC_PASSOS;
+    if (encolhe < encolheAlvo) {
+      encolhe += passo;
+      if (encolhe > encolheAlvo) encolhe = encolheAlvo;
+    } else {
+      encolhe -= passo;
+      if (encolhe < encolheAlvo) encolhe = encolheAlvo;
+    }
+    encolheEm = agora + PLR_ENC_MS;
+    aplicarAspecto();
+  }
+
+  // Fim do avanco por inatividade: o controle nao manda KEYUP confiavel, entao
+  // quem decide que a pessoa soltou e o silencio.
+  if (scrubbing && agora - scrubUltimo > PLR_SCRUB_FIM_MS) terminarSalto();
+
   if (comVideo && video_ativo()) {
     double d = video_duracao();
-    posSeg = (float)video_pos();
+    // AVANCANDO, a posicao e a que o dono escolheu. Ler video_pos() aqui era o
+    // que fazia a barra pular de volta a cada repeticao de tecla.
+    if (!scrubbing) posSeg = (float)video_pos();
     if (d > 1.0) duracaoSeg = (float)d;
     if (!retomadaAplicada && video_pronto() && d>1.0) {
       retomadaAplicada=1;
@@ -829,7 +965,13 @@ void player_atualizar(float dt, Uint32 agora) {
   // justamente porque a contagem esta correndo — sem esta linha o painel
   // subiria invisivel, atras dela.
   pausao_atualizar(dt, agora,
-                   !tocando && !saindo && !erroFonte && !player_carregando() &&
+                   // `!scrubbing`: durante o avanco o video fica pausado por
+                   // conta do player, e nao porque o dono parou para olhar. Sem
+                   // esta condicao o painel subia sozinho no meio de um avanco
+                   // longo — o "componente que aparece quando ta pausado
+                   // piscando" do relato.
+                   !tocando && !scrubbing && !saindo && !erroFonte &&
+                   !player_carregando() &&
                    !episodios_aberto() && !stream_folha_aberta() &&
                    !faixas_aberta() && !ofertaProximo() && !posplay_visivel(),
                    idx, linhaEp);
@@ -838,6 +980,9 @@ void player_atualizar(float dt, Uint32 agora) {
   // comportamento original, com o painel ocupando o rodape sozinho, so que
   // ancorado mais abaixo — onde a barra ficaria. Um lugar, um conteudo.
   if (pausao_visivel()) visivel = 0;
+  // O painel de pos-reproducao tambem toma o rodape para si. BAIXO devolve os
+  // controles (posplay_evento responde 2), que e a saida documentada.
+  if (posplay_visivel()) visivel = 0;
 
   anim = anim_mola(anim, visivel ? 1.0f : 0.0f, dt,
                    visivel ? NV_MOLA_FOCO : NV_MOLA_DESFOCO);
@@ -980,7 +1125,7 @@ void player_desenhar(Uint32 agora) {
     // na tela. Furar sempre a tela inteira, como antes, deixava faixa preta nos
     // modos que nao ocupam tudo ("Original" num 2.39:1 entregue como 2.39:1):
     // o furo mostrava o nada atras do plano em vez de mostrar o plano.
-    PlrRect r = aspectoVisivel(aspecto);
+    PlrRect r = destinoComRecuo(aspectoVisivel(aspecto));
     GfxRect furo;
     furo.x = r.x; furo.y = r.y; furo.w = r.w; furo.h = r.h;
     // Fora do furo fica PRETO, e nao a arte-chave: e o que a TV mostra ao lado
@@ -1387,6 +1532,9 @@ void player_desenhar(Uint32 agora) {
 
   // POR CIMA DE TUDO: o painel de pos-reproducao e o mais recente na tela.
   // Ancorado pela MESMA base do painel de pausa, para nao cair sobre a barra.
-  { float yRow = NV_TELA_H - PLR_PAD_Y - PLR_BTN_D;
-    posplay_desenhar(agora, yRow - PLR_GAP_ROW - PLR_TRILHO_H - PAUSAO_FOLGA); }
+  // BASE NA MARGEM INFERIOR, e nao acima da barra: com o video recuado os
+  // controles saem de cena (logo abaixo) e o painel ocupa o espaco que se
+  // abriu. Ancorar acima da barra desperdicaria justamente a faixa que o recuo
+  // do video existe para criar.
+  posplay_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
 }
