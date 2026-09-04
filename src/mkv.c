@@ -141,11 +141,83 @@ static int lerTracks(const unsigned char *p, long n, MkvFaixa *saida, int max) {
   return achou;
 }
 
+// --- capitulos ---------------------------------------------------------------
+#define ID_CHAPTERS    0x1043A770UL
+#define ID_EDITION     0x45B9UL
+#define ID_CHAPATOM    0xB6UL
+#define ID_CHAPSTART   0x91UL
+#define ID_CHAPDISPLAY 0x80UL
+#define ID_CHAPSTRING  0x85UL
+
+// ChapterTimeStart e em NANOSSEGUNDOS ABSOLUTOS, e nao em unidades de
+// TimecodeScale — e a excecao do formato, e trocar os dois daria um numero mil
+// vezes errado sem parecer errado (um filme de 105 min viraria 105 ms).
+static int lerCapitulos(const unsigned char *p, long n, MkvCap *saida, int max) {
+  long o = 0;
+  int achou = 0;
+  while (o < n && achou < max) {
+    int ui = 0, ut = 0;
+    unsigned long id = lerId(p + o, n - o, &ui);
+    long tam;
+    if (!id) break;
+    tam = lerTam(p + o + ui, n - o - ui, &ut);
+    if (tam < 0) break;
+    o += ui + ut;
+    if (o + tam > n) break;
+    if (id == ID_EDITION) {
+      // Uma edicao contem os atomos; descer sem pular.
+      achou += lerCapitulos(p + o, tam, saida + achou, max - achou);
+    } else if (id == ID_CHAPATOM) {
+      MkvCap c;
+      long q = 0;
+      int temInicio = 0;
+      memset(&c, 0, sizeof c);
+      while (q < tam) {
+        int vi = 0, vt = 0;
+        unsigned long fid = lerId(p + o + q, tam - q, &vi);
+        long ftam;
+        if (!fid) break;
+        ftam = lerTam(p + o + q + vi, tam - q - vi, &vt);
+        if (ftam < 0) break;
+        q += vi + vt;
+        if (q + ftam > tam) break;
+        { const unsigned char *v = p + o + q;
+          if (fid == ID_CHAPSTART) {
+            c.inicio = (double)lerUint(v, ftam) / 1000000000.0;
+            temInicio = 1;
+          } else if (fid == ID_CHAPDISPLAY) {
+            // O nome mora um nivel abaixo, em ChapString.
+            long r = 0;
+            while (r < ftam) {
+              int di = 0, dt = 0;
+              unsigned long did = lerId(v + r, ftam - r, &di);
+              long dtam;
+              if (!did) break;
+              dtam = lerTam(v + r + di, ftam - r - di, &dt);
+              if (dtam < 0) break;
+              r += di + dt;
+              if (r + dtam > ftam) break;
+              if (did == ID_CHAPSTRING) lerTexto(v + r, dtam, c.nome, sizeof c.nome);
+              r += dtam;
+            }
+          } }
+        q += ftam;
+      }
+      if (temInicio) saida[achou++] = c;
+    }
+    o += tam;
+  }
+  return achou;
+}
+
 // Anda pela arvore ate achar Tracks. Entra em Segment (que e um contentor
 // gigante) e PULA o resto — sem o pulo a busca varreria byte a byte e casaria
 // com qualquer coincidencia dentro dos dados de video.
-static int acharTracks(const unsigned char *p, long n, MkvFaixa *saida, int max) {
+static int acharTracks(const unsigned char *p, long n, MkvFaixa *saida, int max,
+                       MkvCap *caps, int maxCaps, int *nCaps) {
   long o = 0;
+  int nFaixas = 0;
+  if (nCaps) *nCaps = 0;
   while (o < n) {
     int ui = 0, ut = 0;
     unsigned long id = lerId(p + o, n - o, &ui);
@@ -162,16 +234,55 @@ static int acharTracks(const unsigned char *p, long n, MkvFaixa *saida, int max)
     }
     if (id == ID_TRACKS) {
       long disp = n - o;
-      if (tam > disp) tam = disp;     // cabecalho maior que o trecho baixado
-      return lerTracks(p + o, tam, saida, max);
+      long t = tam > disp ? disp : tam;   // cabecalho maior que o trecho baixado
+      nFaixas = lerTracks(p + o, t, saida, max);
+      // NAO devolve aqui: Chapters vem DEPOIS de Tracks no arquivo, e sair no
+      // primeiro achado era o que deixava os capitulos para tras.
+      if (!caps || tam > disp) return nFaixas;
+      o += tam;
+      continue;
     }
-    if (o + tam > n) return 0;        // elemento passa do que baixamos
+    if (id == ID_CHAPTERS && caps && maxCaps > 0) {
+      long disp = n - o;
+      long t = tam > disp ? disp : tam;
+      if (nCaps) *nCaps = lerCapitulos(p + o, t, caps, maxCaps);
+      return nFaixas;
+    }
+    if (o + tam > n) return nFaixas;  // elemento passa do que baixamos
     o += tam;
   }
-  return 0;
+  return nFaixas;
 }
 
-int mkv_faixas(const char *url, MkvFaixa *saida, int max) {
+// O capitulo dos creditos: primeiro pelo NOME, depois pela posicao.
+//
+// Pelo nome cobre os lancamentos que etiquetam ("End Credits", "Creditos",
+// "Outro"). Sem nome util, vale o ULTIMO capitulo — mas so quando ele comeca
+// no ultimo quarto do arquivo: em disco com capitulo a cada 5 minutos o ultimo
+// e uma cena qualquer, e trata-lo como creditos poria o painel no meio do
+// terceiro ato.
+double mkv_creditos_nomeados(const MkvCap *caps, int n) {
+  static const char *NOMES[] = { "credit", "crédit", "credito", "crédito",
+                                 "end title", "outro", "encerrament" };
+  int i, k;
+  for (i = 0; i < n; i++) {
+    char m[64];
+    size_t j;
+    snprintf(m, sizeof m, "%s", caps[i].nome);
+    // Minusculas byte a byte. Serve para o ASCII dos rotulos que importam; o
+    // acento de "créditos" e comparado como esta, e por isso a lista tem as
+    // duas formas.
+    for (j = 0; m[j]; j++)
+      if (m[j] >= 'A' && m[j] <= 'Z') m[j] = (char)(m[j] - 'A' + 'a');
+    for (k = 0; k < (int)(sizeof NOMES / sizeof NOMES[0]); k++)
+      if (strstr(m, NOMES[k])) return caps[i].inicio;
+  }
+  return 0.0;
+}
+
+
+int mkv_faixas_e_caps(const char *url, MkvFaixa *saida, int max,
+                      MkvCap *caps, int maxCaps, int *nCaps) {
   char *buf;
   long n = 0;
   int achou;
@@ -185,9 +296,15 @@ int mkv_faixas(const char *url, MkvFaixa *saida, int max) {
     free(buf);
     return 0;
   }
-  achou = acharTracks((const unsigned char *)buf, n, saida, max);
+  achou = acharTracks((const unsigned char *)buf, n, saida, max,
+                      caps, maxCaps, nCaps);
   free(buf);
-  printf("[mkv] %d faixas lidas do cabecalho (%ld bytes)\n", achou, n);
+  printf("[mkv] %d faixas e %d capitulos lidos do cabecalho (%ld bytes)\n",
+         achou, (nCaps && caps) ? *nCaps : 0, n);
   fflush(stdout);
   return achou;
+}
+
+int mkv_faixas(const char *url, MkvFaixa *saida, int max) {
+  return mkv_faixas_e_caps(url, saida, max, NULL, 0, NULL);
 }

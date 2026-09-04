@@ -133,6 +133,10 @@ void video_janela_fonte(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh)
 }
 double video_pos(void) { return 0; }
 double video_duracao(void) { return 0; }
+// Sem pipeline nao ha arquivo para ler capitulos: no Mac o pos-reproducao cai
+// no plano B dos ultimos minutos, que e o mesmo caminho de um MKV sem
+// capitulos. Melhor um stub honesto que um numero inventado.
+double video_creditos(void) { return 0.0; }
 double video_buffer_fim(void) { return 0; }
 void video_definir_dv(int dv) { (void)dv; }
 int  video_tocando(void) { return 0; }
@@ -948,15 +952,47 @@ int video_iniciar(void) {
 
 // --- idioma das legendas lido do proprio arquivo -----------------------------
 // Ver a nota no ponto de disparo, logo abaixo do parse do sourceInfo.
+// INICIO DOS CREDITOS, em segundos, ou 0 quando o arquivo nao diz.
+//
+// Sai do capitulo final do Matroska, lido na MESMA descida de 320 KB que ja
+// buscava as faixas. E o "marcador correto" que faltava: sem ele, quando os
+// creditos comecam so pode ser chutado, e o chute erra em minutos — cedo demais
+// rouba o desfecho, tarde demais aparece com os creditos ja rolando.
+// Dois valores, e nao um: o do NOME e conclusivo assim que lido; o POSICIONAL
+// depende da duracao, que quase sempre ainda e 0 quando o cabecalho termina de
+// ser lido (o fio do MKV corre junto com a abertura da sessao de video). Fixar
+// o posicional ali daria 0 sempre, e a regra existiria sem nunca valer.
+static double creditosNomeado;   // capitulo que se identifica como creditos
+static double creditosUltimo;    // inicio do ultimo capitulo, seja qual for
+
+double video_creditos(void) {
+  double dur;
+  if (creditosNomeado > 1.0) return creditosNomeado;
+  dur = video_duracao();
+  // O ultimo capitulo so vale como creditos se comecar no ultimo quarto: em
+  // disco com um capitulo a cada cinco minutos, o ultimo e uma cena qualquer.
+  if (creditosUltimo > 1.0 && dur > 1.0 && creditosUltimo > dur * 0.75)
+    return creditosUltimo;
+  return 0.0;
+}
+
 static void *lerMkv(void *arg) {
   MkvFaixa fx[MKV_MAX_FAIXAS];
+  MkvCap   caps[MKV_MAX_CAPS];
   char url[1024];
-  int n, i, j, casou = 0;
+  int n, i, j, casou = 0, nCaps = 0;
   (void)arg;
 
   snprintf(url, sizeof url, "%s", urlAtual);
 
-  n = mkv_faixas(url, fx, MKV_MAX_FAIXAS);
+  n = mkv_faixas_e_caps(url, fx, MKV_MAX_FAIXAS, caps, MKV_MAX_CAPS, &nCaps);
+  if (nCaps > 0) {
+    creditosNomeado = mkv_creditos_nomeados(caps, nCaps);
+    creditosUltimo  = nCaps > 1 ? caps[nCaps - 1].inicio : 0.0;
+    printf("[mkv] %d capitulos; creditos nomeados em %.0fs, ultimo \"%s\" em %.0fs\n",
+           nCaps, creditosNomeado, caps[nCaps - 1].nome, creditosUltimo);
+    fflush(stdout);
+  }
   if (n < 1) {
     // Sem isto o unico sinal era uma linha de stdout, que na TV nao chega a
     // lugar nenhum — e a lista ficava em "Legenda 1, Legenda 2" sem ninguem
@@ -1018,6 +1054,10 @@ static int tocarInterno(const char *url, int comDV);
 
 int video_tocar(const char *url) {
   dvRecuado = 0;
+  // Titulo novo: o marcador do anterior nao vale. Sem isto um filme sem
+  // capitulos herdaria os creditos do filme de antes — e o painel subiria numa
+  // hora sem relacao nenhuma com o que esta tocando.
+  creditosNomeado = creditosUltimo = 0.0;
   snprintf(urlAtual, sizeof urlAtual, "%s", url ? url : "");
   return tocarInterno(url, 1);
 }

@@ -28,9 +28,35 @@ typedef struct {
   char codec[24];     // CodecID ("S_TEXT/UTF8", "S_HDMV/PGS")
 } MkvFaixa;
 
+#define MKV_MAX_CAPS 64
+
+// CAPITULO. Existe pelo pos-reproducao: sem marcador, "quando comecam os
+// creditos" vira chute, e um chute erra em minutos. Muitos lancamentos trazem
+// um capitulo final chamado "End Credits"/"Creditos" — quando ele esta la, e a
+// resposta exata, de graca, no cabecalho que ja baixamos para as faixas.
+typedef struct {
+  double inicio;      // segundos desde o inicio do arquivo
+  char   nome[64];    // ChapString, quando o arquivo nomeia
+} MkvCap;
+
 // Le o cabecalho de `url` e preenche `saida`. Devolve quantas faixas achou, 0
 // quando nao deu (nao e MKV, servidor sem Range, cabecalho maior que o trecho).
 // BLOQUEIA: chamar de um fio proprio.
 int mkv_faixas(const char *url, MkvFaixa *saida, int max);
+
+// Mesma leitura, UMA viagem so, devolvendo tambem os capitulos. `caps` pode ser
+// NULL. O numero de capitulos sai por `nCaps`.
+//
+// UMA VIAGEM E O PONTO: a nota no topo de mkv.c registra que esta leitura
+// acontece com o video JA TOCANDO, pela mesma conexao — uma segunda descida de
+// 320 KB para buscar capitulos custaria exatamente o engasgo que aquela nota
+// descreve.
+int mkv_faixas_e_caps(const char *url, MkvFaixa *saida, int max,
+                      MkvCap *caps, int maxCaps, int *nCaps);
+
+// Segundo do capitulo que se IDENTIFICA como creditos pelo nome, ou 0. Nao
+// chuta pela posicao: quem sabe a duracao do filme e quem chama, e sem ela
+// "ultimo capitulo" nao distingue creditos de cena final.
+double mkv_creditos_nomeados(const MkvCap *caps, int n);
 
 #endif

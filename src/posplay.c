@@ -9,6 +9,7 @@
 #include "ajustes.h"
 #include "detail.h"
 #include "descoberta.h"
+#include "video.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -100,6 +101,7 @@ static int acharProximo(int idxItem, int t, int e) {
 void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
                        int ehSerie, int idxCatalogo, int janelaSerie) {
   int deveAparecer = 0;
+  double creditosSeg = video_creditos();
   anim = anim_mola(anim, visivel ? 1.0f : 0.0f, dt, NV_MOLA_TELA);
   if (durSeg <= 1.0) return;
 
@@ -113,8 +115,17 @@ void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
     // A CONTAGEM continua sendo a do web: so nos 5 s finais. Aparecer cedo e
     // util; comecar a contar cedo tiraria do dono o fim do episodio.
     deveAparecer = janelaSerie;
+  } else if (creditosSeg > 1.0 && posSeg >= creditosSeg) {
+    // O MARCADOR DE VERDADE, quando o arquivo o traz: o capitulo de creditos do
+    // proprio Matroska. Nao e estimativa — e o segundo que o lancamento marcou.
+    deveAparecer = 1;
+  } else if (creditosSeg > 1.0) {
+    // Ha marcador e ele ainda nao chegou: NAO cair no plano B. Os dois juntos
+    // fariam o painel subir antes do capitulo, que e o defeito que o marcador
+    // existe para resolver.
+    deveAparecer = 0;
   } else {
-    // FILME: os ultimos minutos, e nao os 90% do web.
+    // FILME SEM CAPITULOS: os ultimos minutos, e nao os 90% do web.
     //
     // O dono viu o painel subir ANTES dos creditos e pediu "o marcador correto
     // de onde comecam os creditos". ELE NAO EXISTE PARA FILME, e e melhor

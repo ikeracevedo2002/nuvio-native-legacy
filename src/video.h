@@ -48,6 +48,12 @@ void video_janela_fonte(int sx, int sy, int sw, int sh,
 
 double video_pos(void);      // segundos decorridos
 double video_duracao(void);  // 0 enquanto desconhecida
+
+// Segundo em que comecam os CREDITOS, ou 0 quando o arquivo nao diz. Sai do
+// capitulo final do Matroska, lido no mesmo trecho de cabecalho que ja e
+// baixado para descobrir o idioma das faixas — ver mkv.h. Vale so para MKV com
+// capitulos; quem chama precisa de um plano B.
+double video_creditos(void);
 double video_buffer_fim(void); // ate onde o buffer cobre (s); 0 se desconhecido
 // Afirmacao de Dolby Vision da FONTE escolhida (o addon descreve o arquivo).
 // Chamar ANTES de video_tocar/definir_fonte: e o que decide o hdrType que o
