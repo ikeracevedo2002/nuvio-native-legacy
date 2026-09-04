@@ -354,12 +354,16 @@ void app_atualizar(float dt, Uint32 agora) {
     return;
   }
 
-  if (tela == TELA_ESCOLHA_PERFIL) {
-    sync_passo((unsigned)agora);
-  // Os vinculos de Trakt e Simkl tambem avancam aqui: os dois fazem poll e
-  // precisam de um passo por quadro, como o login da conta.
+  // Os vinculos de Trakt e Simkl avancam TODO quadro, em qualquer tela: os dois
+  // fazem poll. MEDIDO na TV: estas duas linhas viviam dentro do `if` da tela
+  // de perfil (a indentacao enganava), entao o poll so rodava ali — em Ajustes,
+  // onde o vinculo e feito, "Aguardando a autorizacao" nunca saia do lugar
+  // mesmo com a pessoa ja tendo autorizado no celular.
   traktauth_passo((unsigned)agora);
   simklauth_passo((unsigned)agora);
+
+  if (tela == TELA_ESCOLHA_PERFIL) {
+    sync_passo((unsigned)agora);
     perfilsel_atualizar(dt, agora);
     if (perfilsel_pediu_repetir()) { sync_iniciar(); return; }
     if (perfilsel_quer_sair()) {
