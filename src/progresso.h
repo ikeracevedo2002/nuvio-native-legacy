@@ -24,7 +24,8 @@
 // de novo e o que conserta as linhas paralelas no servidor.
 //
 // Este modulo nao conhece catalogo nem rede. catalogo.c so recebe o resultado
-// para atualizar itens[]; sync.c so le pendentes e aplica remotos.
+// para atualizar itens[]; syncprog.c so le pendentes e aplica remotos.
+// Seguro entre fios: toda chamada publica toma um mutex.
 #ifndef NV_PROGRESSO_H
 #define NV_PROGRESSO_H
 
@@ -53,9 +54,10 @@ void prog_content_id(char *dst, unsigned n, const char *imdb, int *temporada, in
 // Registros do PERFIL ATIVO, do mais recente para o mais antigo. Devolve quantos.
 int  prog_ler(ProgRegistro *saida, int max);
 
-// Um registro do perfil ativo por chave; NULL se nao ha. Ponteiro para o cache
-// interno: nao guardar, nao escrever.
-const ProgRegistro *prog_por_chave(const char *chave);
+// Copia para `saida` o registro do perfil ativo com essa chave. 1 se havia.
+// Copia, e nao ponteiro: dois fios leem aqui, e um ponteiro para o cache
+// interno valeria so ate a proxima escrita do outro.
+int  prog_por_chave(const char *chave, ProgRegistro *saida);
 
 // Escrita LOCAL (player ao fechar, botao do olho, pos-play). `imdb` pode ser
 // composto; temporada/episodio explicitos ganham dos que vierem no id.

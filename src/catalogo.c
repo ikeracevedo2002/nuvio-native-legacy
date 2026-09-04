@@ -1,6 +1,10 @@
 #include "catalogo.h"
 #include "descoberta.h"
+#include "progresso.h"
 #include <stdio.h>
+
+static int mesmoTitulo(const char *a, const char *b);
+static int aplicarProgressoDoDisco(void);
 #include <string.h>
 #include <stdlib.h>
 
@@ -284,39 +288,11 @@ int cat_carregar(const char *dirArte) {
     fclose(fx);
   }
 
-  // progresso.txt: "tt1234567<TAB>posicaoSeg<TAB>duracaoSeg" por linha, o que
-  // ESTE app gravou. Vem depois de extra.txt de proposito — o que se assistiu
-  // aqui e mais recente que o retrato trazido do app web.
-  snprintf(caminho, sizeof caminho, "%s/progresso.txt", dirArte);
-  { FILE *fp = fopen(caminho, "r");
-    int aplicados = 0;
-    if (fp) {
-      while (fgets(linha, sizeof linha, fp)) {
-        char id[24]; double pos, dur; int i;
-        int temporada = 0, episodio = 0;
-        if (sscanf(linha, "%23s %lf %lf %d %d", id, &pos, &dur, &temporada, &episodio) < 3 || dur <= 1.0) continue;
-        for (i = 0; i < n; i++) {
-          // O id do catalogo pode trazer episodio ("tt123:4:9"); comparar so o
-          // prefixo do titulo, que e o que identifica a obra.
-          if (!strncmp(itens[i].imdb, id, strlen(id)) &&
-              (itens[i].imdb[strlen(id)] == 0 || itens[i].imdb[strlen(id)] == ':')) {
-            itens[i].progresso = (int)(100.0 * pos / dur);
-            itens[i].restanteMin = (int)((dur - pos) / 60.0 + 0.5);
-            if(temporada>0 && episodio>0) {
-              if(itens[i].temporada!=temporada || itens[i].episodio!=episodio)
-                itens[i].nomeEpisodio[0]=0;
-              itens[i].temporada=temporada; itens[i].episodio=episodio;
-            }
-            aplicados++;
-            break;
-          }
-        }
-      }
-      fclose(fp);
-      if (aplicados) printf("catalogo: %d progressos deste app\n", aplicados);
-    }
-    snprintf(dirGravacao, sizeof dirGravacao, "%s", dirArte);
-  }
+  // Progresso gravado NESTE app (progresso.c). Vem depois de extra.txt de
+  // proposito — o que se assistiu aqui e mais recente que o retrato trazido do
+  // app web.
+  { int aplicados = aplicarProgressoDoDisco();
+    if (aplicados) printf("catalogo: %d progressos deste app\n", aplicados); }
 
   // episodios.txt: "indice|temporada|episodio|nome|duracao|data|sinopse".
   // Indice na frente porque so parte dos titulos tem episodio — uma linha por
@@ -485,58 +461,76 @@ int cat_indice_por_imdb(const char *imdb) {
   return -1;
 }
 
+static int normalizarIndice(int indice) {
+  int i = cat_n();
+  if (i < 1) return -1;
+  return ((indice % i) + i) % i;
+}
+
+void cat_apontar_episodio(int indice, int temporada, int episodio) {
+  int e;
+  indice = normalizarIndice(indice);
+  if (indice < 0 || !(temporada > 0 && episodio > 0)) return;
+  if (itens[indice].temporada != temporada || itens[indice].episodio != episodio)
+    itens[indice].nomeEpisodio[0] = 0;
+  itens[indice].temporada = temporada;
+  itens[indice].episodio  = episodio;
+  for (e = 0; e < cat_n_episodios(indice); e++) {
+    const CatEp *ep = cat_episodio(indice, e);
+    if (ep && ep->temporada == temporada && ep->episodio == episodio) {
+      snprintf(itens[indice].nomeEpisodio, sizeof itens[indice].nomeEpisodio, "%s", ep->nome);
+      break;
+    }
+  }
+}
+
+void cat_aplicar_progresso(int indice, double posSeg, double durSeg, int temporada, int episodio) {
+  indice = normalizarIndice(indice);
+  if (indice < 0 || durSeg <= 1.0) return;
+  itens[indice].progresso = (int)(100.0 * posSeg / durSeg);
+  itens[indice].restanteMin = (int)((durSeg - posSeg) / 60.0 + 0.5);
+  cat_apontar_episodio(indice, temporada, episodio);
+}
+
+// Reaplica o que esta em progresso.c sobre itens[]. Os registros vem do mais
+// novo para o mais antigo, e cada titulo recebe so o primeiro que casar: numa
+// serie com varios episodios gravados, e o episodio mais recente que a fileira
+// e o "Retomar" querem mostrar.
+static int aplicarProgressoDoDisco(void) {
+  static ProgRegistro regs[PROG_MAX];
+  char *tocado;
+  int k, i, m = cat_n(), aplicados = 0;
+  if (m < 1) return 0;
+  k = prog_ler(regs, PROG_MAX);
+  if (k < 1) return 0;
+  tocado = calloc((size_t)m, 1);
+  if (!tocado) return 0;
+  for (i = 0; i < k; i++) {
+    int j;
+    for (j = 0; j < m; j++) {
+      if (tocado[j] || !itens[j].imdb[0] || !mesmoTitulo(itens[j].imdb, regs[i].contentId)) continue;
+      cat_aplicar_progresso(j, regs[i].posSeg, regs[i].durSeg, regs[i].temporada, regs[i].episodio);
+      tocado[j] = 1;
+      aplicados++;
+      break;
+    }
+  }
+  free(tocado);
+  return aplicados;
+}
+
 void cat_salvar_progresso(int indice, double posSeg, double durSeg) {
   cat_salvar_progresso_ep(indice,posSeg,durSeg,0,0);
 }
 
 void cat_salvar_progresso_ep(int indice, double posSeg, double durSeg, int temporada, int episodio) {
-  char caminho[600], tmp[600], linha[256];
-  FILE *e, *s;
-  const CatItem *it;
-  int i;
-  if (durSeg <= 1.0 || !dirGravacao[0]) return;
-  i = cat_n(); if (i < 1) return;
-  indice = ((indice % i) + i) % i;
-  it = &itens[indice];
-  if (!it->imdb[0]) return;
-
-  // Reescreve o arquivo inteiro trocando a linha deste titulo. E um arquivo de
-  // dezenas de linhas: ler tudo e regravar custa nada e evita duplicata, que
-  // um simples append acumularia.
-  snprintf(caminho, sizeof caminho, "%s/progresso.txt", dirGravacao);
-  snprintf(tmp, sizeof tmp, "%s/progresso.tmp", dirGravacao);
-  s = fopen(tmp, "w");
-  if (!s) return;
-  e = fopen(caminho, "r");
-  if (e) {
-    while (fgets(linha, sizeof linha, e)) {
-      char id[24];
-      if (sscanf(linha, "%23s", id) == 1 && !strcmp(id, it->imdb)) continue;
-      fputs(linha, s);
-    }
-    fclose(e);
-  }
-  fprintf(s, "%s\t%.0f\t%.0f\t%d\t%d\n", it->imdb, posSeg, durSeg,temporada,episodio);
-  fclose(s);
-  // Gravar em temporario e renomear: um corte de energia no meio da escrita
-  // deixaria o arquivo pela metade e o app subiria sem progresso nenhum.
-  rename(tmp, caminho);
-
-  itens[indice].progresso = (int)(100.0 * posSeg / durSeg);
-  itens[indice].restanteMin = (int)((durSeg - posSeg) / 60.0 + 0.5);
-  if(temporada>0 && episodio>0) {
-    if (itens[indice].temporada != temporada || itens[indice].episodio != episodio)
-      itens[indice].nomeEpisodio[0] = 0;
-    itens[indice].temporada=temporada;
-    itens[indice].episodio=episodio;
-    for (int e = 0; e < cat_n_episodios(indice); e++) {
-      const CatEp *ep = cat_episodio(indice, e);
-      if (ep && ep->temporada == temporada && ep->episodio == episodio) {
-        snprintf(itens[indice].nomeEpisodio, sizeof itens[indice].nomeEpisodio, "%s", ep->nome);
-        break;
-      }
-    }
-  }
+  indice = normalizarIndice(indice);
+  if (indice < 0 || !itens[indice].imdb[0]) return;
+  // O arquivo e de progresso.c: chave igual a do web, pendente, com hora. O
+  // imdb do item pode vir composto ("tt123:4:9", itens do Trakt) — a funcao
+  // corta e usa o episodio explicito quando ha.
+  if (!prog_gravar_local(itens[indice].imdb, temporada, episodio, posSeg, durSeg)) return;
+  cat_aplicar_progresso(indice, posSeg, durSeg, temporada, episodio);
 }
 
 int cat_n_episodios(int indiceItem) {
@@ -642,7 +636,6 @@ void cat_definir(const CatItem *lista, int qtd) {
 
 void cat_definir_tudo(const CatItem *lista, int qtd,
                       const CatFileira *novasFils, int nNovas) {
-  int i;
   if (!lista || qtd < 1) return;
   // TROCA DE BLOCO, sem realloc no lugar.
   //
@@ -693,36 +686,11 @@ void cat_definir_tudo(const CatItem *lista, int qtd,
   nEps = 0;
   garantirFaixas(nAlocado);
   (void)0;
-  // O progresso vem de arquivo e e por imdb, entao sobrevive a troca — mas
-  // precisa ser reaplicado, porque os itens novos nasceram zerados.
-  if (dirGravacao[0]) {
-    char caminho[600], linha[256];
-    FILE *fp;
-    snprintf(caminho, sizeof caminho, "%s/progresso.txt", dirGravacao);
-    fp = fopen(caminho, "r");
-    if (fp) {
-      while (fgets(linha, sizeof linha, fp)) {
-        char id[24]; double pos, dur;
-        int temporada = 0, episodio = 0;
-        if (sscanf(linha, "%23s %lf %lf %d %d", id, &pos, &dur, &temporada, &episodio) < 3 || dur <= 1.0) continue;
-        for (i = 0; i < n; i++) {
-          size_t L = strlen(id);
-          if (!strncmp(itens[i].imdb, id, L) &&
-              (itens[i].imdb[L] == 0 || itens[i].imdb[L] == ':')) {
-            itens[i].progresso = (int)(100.0 * pos / dur);
-            itens[i].restanteMin = (int)((dur - pos) / 60.0 + 0.5);
-            if(temporada>0 && episodio>0) {
-              if(itens[i].temporada!=temporada || itens[i].episodio!=episodio)
-                itens[i].nomeEpisodio[0]=0;
-              itens[i].temporada=temporada; itens[i].episodio=episodio;
-            }
-            break;
-          }
-        }
-      }
-      fclose(fp);
-    }
-  }
+  // O progresso e por imdb e vive em progresso.c, entao sobrevive a troca —
+  // mas precisa ser reaplicado, porque os itens novos nasceram zerados. E aqui
+  // que uma linha da conta que antes nao casava com nada passa a casar, quando
+  // o titulo dela entra no catalogo.
+  aplicarProgressoDoDisco();
 }
 
 void cat_definir_episodios(int indiceItem, const CatEp *lista, int qtd) {

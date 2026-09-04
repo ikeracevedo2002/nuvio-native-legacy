@@ -299,8 +299,13 @@ static void marcarAssistidoSeSolicitado(void) {
   //
   // E alterna em vez de so marcar: o icone ja mostra os dois estados, entao um
   // botao que so soma nao teria como desfazer um toque errado.
+  // Antes: cat_salvar_progresso(i, ..., 1.0). A guarda `durSeg <= 1.0` daquela
+  // funcao devolvia antes de gravar — o espelho local nunca mudava, so o Trakt.
+  // Sem duracao conhecida do item, usa-se uma hora inteira como sentinela: o
+  // que importa e a porcentagem (100% ou 0%), e e isso que sync e fileira leem.
   { int visto = (c->progresso >= 90);
-    cat_salvar_progresso(i, visto ? 0.0 : 1.0, 1.0);
+    const double dur = 3600.0;
+    cat_salvar_progresso(i, visto ? 0.0 : dur, dur);
     if (c->imdb[0]) trakt_assistido(c->imdb, !visto);
     printf("[app] assistido %s: %s\n", visto ? "desmarcado" : "marcado",
            c->titulo); fflush(stdout); }
@@ -648,8 +653,10 @@ void app_atualizar(float dt, Uint32 agora) {
         char alvo[48];
         snprintf(alvo, sizeof alvo, "%s:%d:%d", ci->imdb, t, e);
         // O item passa a apontar para o episodio NOVO: e dele que sai o
-        // rotulo do player e o alvo do proximo pos-reproducao.
-        cat_salvar_progresso_ep(player_indice(), 0.0, 0.0, t, e);
+        // rotulo do player e o alvo do proximo pos-reproducao. Antes era
+        // cat_salvar_progresso_ep(..., 0.0, 0.0, t, e), que a guarda de
+        // duracao devolvia sem fazer nada.
+        cat_apontar_episodio(player_indice(), t, e);
         addons_buscar(alvo, "series");
         aguardandoFonte = 1;
       }

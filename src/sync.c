@@ -6,6 +6,8 @@
 #include "addons.h"
 #include "trakt.h"
 #include "catalogo.h"
+#include "progresso.h"
+#include "syncprog.h"
 #include "ajustes.h"
 #include "catordem.h"
 #include "descoberta.h"
@@ -18,8 +20,6 @@
 #include <pthread.h>
 
 #define SY_ADD_MAX   16
-#define SY_PROG_MAX 240
-#define ARQ_PROG "progresso.txt"
 
 static pthread_t fio;
 static int fioVivo, fioPronto;
@@ -44,9 +44,6 @@ static int  temTraktRem;
 static char tmdbKey[120], mdbKey[120];
 static int  temTmdb, temMdb;
 
-typedef struct { char imdb[40]; double pos, dur; int temp, ep; } ProgItem;
-static ProgItem progRem[SY_PROG_MAX];
-static int nProgRem;
 
 // Contagens do que foi puxado mas o app ainda nao consome. Elas existem para o
 // resumo poder dizer a verdade em vez de "sincronizado" sem qualificar.
@@ -207,122 +204,11 @@ static void puxarCredenciais(void) {
 }
 
 // ---------------------------------------------------------------- progresso
-
-static void puxarProgresso(void) {
-  Jsw w;
-  char *r;
-  int st = 0, k = 0;
-  const char *p;
-
-  jsw_iniciar(&w);
-  jsw_obj_ini(&w);
-  jsw_ci(&w, "p_profile_id", perfis_ativo());
-  jsw_obj_fim(&w);
-  r = sessao_rpc("sync_pull_watch_progress", jsw_texto_final(&w), &st);
-  jsw_livre(&w);
-  if (!ok2xx(r, st)) { free(r); return; }
-
-  for (p = js_raiz_array(r); p && k < SY_PROG_MAX; p = js_prox(js_fim(p))) {
-    const char *f = js_fim(p);
-    double pos, dur;
-    int temp, ep;
-    char id[40];
-    if (!js_texto(p, f, "content_id", id, sizeof id)) continue;
-    // O web aceita position_ms/duration_ms e position/duration; os primeiros
-    // ganham quando existem, porque os segundos ja vem em milissegundos nesta
-    // RPC e misturar as duas unidades produz progresso de 100% em tudo.
-    pos = js_num(p, f, "position_ms", -1.0);
-    dur = js_num(p, f, "duration_ms", -1.0);
-    if (pos < 0) pos = js_num(p, f, "position", 0);
-    if (dur < 0) dur = js_num(p, f, "duration", 0);
-    pos /= 1000.0;
-    dur /= 1000.0;
-    if (dur <= 1.0) continue;
-    temp = (int)js_num(p, f, "season", 0);
-    ep   = (int)js_num(p, f, "episode", 0);
-    if (temp > 0 && ep > 0)
-      snprintf(progRem[k].imdb, sizeof progRem[k].imdb, "%s:%d:%d", id, temp, ep);
-    else
-      snprintf(progRem[k].imdb, sizeof progRem[k].imdb, "%s", id);
-    progRem[k].pos = pos;
-    progRem[k].dur = dur;
-    progRem[k].temp = temp;
-    progRem[k].ep = ep;
-    k++;
-  }
-  free(r);
-  // Vazio nao apaga nada: quem consome so aplica o que veio.
-  nProgRem = k;
-}
-
-// Le o progresso que ESTE aparelho gravou. E a unica superficie em que o app
-// nativo tem informacao propria de verdade — por isso e a unica, junto dos
-// addons, que ele empurra.
-static int lerProgressoLocal(ProgItem *saida, int max) {
-  char *buf, *linha, *ctx;
-  int k = 0;
-  buf = dados_ler(ARQ_PROG);
-  if (!buf) return 0;
-  for (linha = strtok_r(buf, "\n", &ctx); linha && k < max;
-       linha = strtok_r(NULL, "\n", &ctx)) {
-    char id[40];
-    double pos, dur;
-    if (sscanf(linha, "%39s %lf %lf", id, &pos, &dur) != 3) continue;
-    if (dur <= 1.0) continue;
-    snprintf(saida[k].imdb, sizeof saida[k].imdb, "%s", id);
-    saida[k].pos = pos;
-    saida[k].dur = dur;
-    k++;
-  }
-  free(buf);
-  return k;
-}
-
-static void empurrarProgresso(void) {
-  ProgItem local[SY_PROG_MAX];
-  Jsw w;
-  char *r;
-  int n, i, st = 0;
-
-  n = lerProgressoLocal(local, SY_PROG_MAX);
-  if (n <= 0) return;   // vazio nunca vira push; delecao tem RPC propria
-
-  jsw_iniciar(&w);
-  jsw_obj_ini(&w);
-  jsw_ci(&w, "p_profile_id", perfis_ativo());
-  jsw_cs(&w, "p_origin_client_id", dados_cliente_id());
-  jsw_chave(&w, "p_entries");
-  jsw_arr_ini(&w);
-  for (i = 0; i < n; i++) {
-    // "tt123:4:9" carrega temporada e episodio; o servidor quer os tres campos
-    // separados, e mandar o id composto em content_id faria cada episodio
-    // virar um titulo diferente na conta.
-    char id[40];
-    int temp = 0, ep = 0;
-    char *dp;
-    snprintf(id, sizeof id, "%s", local[i].imdb);
-    dp = strchr(id, ':');
-    if (dp) { sscanf(dp + 1, "%d:%d", &temp, &ep); *dp = 0; }
-
-    jsw_obj_ini(&w);
-    jsw_cs(&w, "content_id", id);
-    jsw_cs(&w, "content_type", (temp > 0) ? "series" : "movie");
-    jsw_ci(&w, "position", (long long)(local[i].pos * 1000.0));
-    jsw_ci(&w, "duration", (long long)(local[i].dur * 1000.0));
-    if (temp > 0) { jsw_ci(&w, "season", temp); jsw_ci(&w, "episode", ep); }
-    else          { jsw_chave(&w, "season"); jsw_nulo(&w);
-                    jsw_chave(&w, "episode"); jsw_nulo(&w); }
-    jsw_cs(&w, "progress_key", local[i].imdb);
-    jsw_obj_fim(&w);
-  }
-  jsw_arr_fim(&w);
-  jsw_obj_fim(&w);
-  r = sessao_rpc("sync_push_watch_progress", jsw_texto_final(&w), &st);
-  jsw_livre(&w);
-  if (!ok2xx(r, st)) printf("[sync] push de progresso falhou (HTTP %d)\n", st);
-  else sujoProgresso = 0;
-  free(r);
-}
+//
+// Vive em syncprog.c (pull/push/aplicar) sobre progresso.c (o registro local).
+// Saiu daqui por dois motivos: para ter teste sem subir o ciclo inteiro, e
+// porque o formato que este arquivo mandava divergia do web em tres pontos
+// (chave, tipo de serie, hora) — PLANO-PROGRESSO.md, Parte 1.
 
 // ---------------------------------------------------------------- so leitura
 
@@ -474,16 +360,21 @@ static void *rodar(void *u) {
   perfis_puxar();
   puxarAddons();
   puxarCredenciais();
-  puxarProgresso();
+  syncprog_puxar();
   puxarSoLeitura();
   // Empurrar DEPOIS de puxar, como o startupSyncService do web: puxar depois
   // de empurrar faria o aparelho sobrescrever com o que ele mesmo mandou.
-  if (sujoAddons)    empurrarAddons();
-  if (sujoProgresso) empurrarProgresso();
+  // O puxado NAO e aplicado aqui, e sim em sync_passo, no fio principal — e
+  // la a regra e "pendente local vence": o que se assistiu entre o pull e o
+  // push nao volta atras.
+  if (sujoAddons) empurrarAddons();
+  // Sempre, nao so quando `sujoProgresso`: linhas migradas do formato antigo
+  // nascem pendentes sem ninguem ter marcado nada.
+  if (syncprog_empurrar() >= 0) sujoProgresso = 0;
 
   snprintf(resumo, sizeof resumo,
            "%d addons · %d progressos · %d vistos · %d na lista · %d coleções%s",
-           nAddonsRem, nProgRem, cVistos < 0 ? 0 : cVistos,
+           nAddonsRem, syncprog_puxadas(), cVistos < 0 ? 0 : cVistos,
            cBiblio < 0 ? 0 : cBiblio, cColecoes < 0 ? 0 : cColecoes,
            temTraktRem ? " · Trakt" : "");
   estado = SYNC_PRONTO;
@@ -554,22 +445,10 @@ void sync_passo(unsigned agoraMs) {
     temAjustesBlob = 0;
     aplicarAjustes = 0;   // daqui para frente, o que a pessoa mudar na TV fica
   }
-  if (nProgRem) {
-    int i, aplicados = 0;
-    for (i = 0; i < nProgRem; i++) {
-      int idx = cat_indice_por_imdb(progRem[i].imdb);
-      if (idx < 0) continue;
-      // O catalogo deste projeto sabe gravar progresso POR EPISODIO. Usar a
-      // versao sem temporada/episodio perderia em qual episodio a pessoa
-      // parou, que e a informacao que faz a fileira "continue assistindo"
-      // valer alguma coisa numa serie.
-      cat_salvar_progresso_ep(idx, progRem[i].pos, progRem[i].dur,
-                              progRem[i].temp, progRem[i].ep);
-      aplicados++;
-    }
-    printf("[sync] %d de %d progressos casaram com o catalogo\n", aplicados, nProgRem);
-    nProgRem = 0;
-  }
+  // Progresso da conta: progresso.c decide linha a linha (pendente local vence,
+  // senao o mais novo), guarda ate o que nao tem titulo no catalogo ainda, e
+  // o catalogo recebe so o que foi aceito.
+  syncprog_aplicar(NULL);
   if (estado == SYNC_PRONTO) ultimoOk = agoraMs;
 }
 
@@ -615,7 +494,8 @@ void sync_esquecer_usuario(void) {
   addons_esquecer();
   trakt_esquecer();
   perfis_esquecer();
-  dados_apagar(ARQ_PROG);
+  prog_esquecer_tudo();
+  syncprog_esquecer();
 
   // As caixas que o fio preenche tambem: um ciclo que terminou logo antes do
   // logout aplicaria os addons da conta anterior no proximo sync_passo.
@@ -624,7 +504,6 @@ void sync_esquecer_usuario(void) {
   traktTok[0] = 0; temTraktRem = 0;
   memset(tmdbKey, 0, sizeof tmdbKey); temTmdb = 0;
   memset(mdbKey, 0, sizeof mdbKey);   temMdb = 0;
-  nProgRem = 0;
   cVistos = cBiblio = cSalvos = cColecoes = 0;
   temAjustesPerfil = temCatHome = 0;
   estado = SYNC_PARADO;

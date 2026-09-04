@@ -7,6 +7,7 @@
 #include "rede.h"
 #include "js.h"
 #include "trakt.h"
+#include "progresso.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -839,6 +840,51 @@ static void *fioCatalogo(void *u) {
   }
 }
 
+// "Continuar assistindo" a partir do progresso local (progresso.c), no mesmo
+// formato que trakt_continuar devolve: imdb (composto em serie), tipo,
+// porcentagem, temporada/episodio — e o resto vem do Cinemeta pelo mesmo
+// enfeite. Mais recente primeiro (prog_ler ja ordena). Entra o que esta entre
+// 1% e 90%, os mesmos limites de home_registrar_retorno; titulo terminado nao
+// e "continuar". O proximo episodio de uma serie terminada fica para depois.
+static int continuarLocal(CatItem *saida, int max) {
+  static ProgRegistro regs[PROG_MAX];
+  int k, i, n = 0;
+  k = prog_ler(regs, PROG_MAX);
+  for (i = 0; i < k && n < max; i++) {
+    const ProgRegistro *r = &regs[i];
+    CatItem *d;
+    double p;
+    int j, repetido = 0;
+    if (r->durSeg < 60.0) continue;
+    p = r->posSeg / r->durSeg;
+    if (p < 0.01 || p >= 0.90) continue;
+    // Uma serie com varios episodios gravados entra UMA vez, no mais recente.
+    for (j = 0; j < n; j++) {
+      const char *dp = strchr(saida[j].imdb, ':');
+      size_t L = dp ? (size_t)(dp - saida[j].imdb) : strlen(saida[j].imdb);
+      if (L == strlen(r->contentId) && !strncmp(saida[j].imdb, r->contentId, L)) { repetido = 1; break; }
+    }
+    if (repetido) continue;
+    d = &saida[n];
+    memset(d, 0, sizeof *d);
+    d->progresso = (int)(100.0 * p);
+    if (r->episodio > 0) {
+      d->temporada = r->temporada;
+      d->episodio  = r->episodio;
+      snprintf(d->imdb, sizeof d->imdb, "%s:%d:%d", r->contentId,
+               r->temporada ? r->temporada : 1, r->episodio);
+      snprintf(d->tipo, sizeof d->tipo, "series");
+    } else {
+      snprintf(d->imdb, sizeof d->imdb, "%s", r->contentId);
+      snprintf(d->tipo, sizeof d->tipo, "movie");
+    }
+    n++;
+  }
+  n = trakt_enfeitar_lote(saida, n);
+  if (n) printf("[desc] continuar assistindo local: %d\n", n);
+  return n;
+}
+
 static void *montar(void *u) {
   // O lote tambem cresce: era dimensionado por CAT_MAX e por isso herdava o
   // mesmo teto arbitrario.
@@ -854,6 +900,12 @@ static void *montar(void *u) {
   // que aparece la — e o historico tem de ganhar das recomendacoes.
   marco("montar: inicio");
   nContinuar = trakt_continuar(lote, 8);
+  // Sem Trakt, a fileira sai do progresso LOCAL (progresso.c): o que se
+  // assistiu aqui e o que a conta Nuvio trouxe dos outros aparelhos. Ate
+  // agora ela simplesmente nao existia para quem nao vincula o Trakt — e e
+  // ela que o login promete (PLANO-PROGRESSO.md 1.5). Com Trakt ativo, ele
+  // manda sozinho; nao misturamos as duas fontes.
+  if (nContinuar == 0 && !trakt_ativo()) nContinuar = continuarLocal(lote, 8);
   n += nContinuar;
   marco("trakt continuar assistindo");
   // O feed social oficial e uma fileira propria, logo depois do retorno ao

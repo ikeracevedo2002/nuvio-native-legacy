@@ -3,6 +3,13 @@
 #include <assert.h>
 #include "../src/home.c"
 
+// catalogo.c agora le o progresso de progresso.c, que fala com dados.c e
+// perfis.c. Aqui nao ha disco nem conta: dublês vazios bastam.
+char *dados_ler(const char *nome) { (void)nome; return NULL; }
+int   dados_gravar(const char *nome, const char *c) { (void)nome; (void)c; return 1; }
+int   dados_apagar(const char *nome) { (void)nome; return 1; }
+int   perfis_ativo(void) { return 1; }
+
 int main(void) {
   assert(MAX_FIL <= FOCUS_MAX_FILEIRAS);
   assert(perfilCatalogo("Oscars 2026 - Filme") == FILEIRA_COLECAO);

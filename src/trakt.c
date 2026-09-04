@@ -174,6 +174,44 @@ static void *fioEnfeitar(void *u) {
   }
 }
 
+// ENFEITAR os n itens em TK_FIOS fios, e so entao compactar: `enfeitar` falha
+// para item que o Cinemeta nao conhece, e antes o `if (enfeitar(...)) n++`
+// simplesmente nao contava — agora o item ja esta na posicao, entao os que
+// falharam saem por compactacao, preservando a ordem do historico.
+//
+// Publico porque a fileira "Continuar assistindo" montada do progresso LOCAL
+// (descoberta.c, sem Trakt) precisa exatamente do mesmo enfeite: tem imdb,
+// tipo e porcentagem, e falta arte, sinopse e minutos restantes.
+int trakt_enfeitar_lote(CatItem *saida, int n) {
+  if (n <= 0) return 0;
+  enfTarefas = calloc((size_t)n, sizeof(TarefaEnf));
+  if (enfTarefas) {
+    pthread_t fios[TK_FIOS];
+    int criados = 0, q, r, w;
+    for (q = 0; q < n; q++) {
+      enfTarefas[q].d = &saida[q];
+      snprintf(enfTarefas[q].tipo, sizeof enfTarefas[q].tipo, "%s", saida[q].tipo);
+    }
+    enfN = n; enfProx = 0;
+    for (q = 0; q < TK_FIOS; q++)
+      if (pthread_create(&fios[criados], NULL, fioEnfeitar, NULL) == 0) criados++;
+    if (!criados) fioEnfeitar(NULL);      // sem fios: em serie, mesmo resultado
+    for (q = 0; q < criados; q++) pthread_join(fios[q], NULL);
+
+    for (r = 0, w = 0; r < n; r++)
+      if (enfTarefas[r].ok) { if (w != r) saida[w] = saida[r]; w++; }
+    n = w;
+    free(enfTarefas); enfTarefas = NULL; enfN = 0;
+  } else {
+    // Sem memoria para a fila: em serie, no proprio fio.
+    int r, w;
+    for (r = 0, w = 0; r < n; r++)
+      if (enfeitar(&saida[r], saida[r].tipo)) { if (w != r) saida[w] = saida[r]; w++; }
+    n = w;
+  }
+  return n;
+}
+
 // A barra de retomada vem de /sync/playback e nao informa se o titulo foi
 // marcado como assistido. Consultamos o historico real uma vez no mesmo ciclo
 // de descoberta para que a modal nao trate progresso alto como prova de visto.
@@ -273,37 +311,7 @@ int trakt_continuar(CatItem *saida, int max) {
   free(corpo);
   carregarHistoricoReal(cab);
 
-  // ENFEITAR os n itens em TK_FIOS fios, e so entao compactar: `enfeitar` falha
-  // para item que o Cinemeta nao conhece, e antes o `if (enfeitar(...)) n++`
-  // simplesmente nao contava — agora o item ja esta na posicao, entao os que
-  // falharam saem por compactacao, preservando a ordem do historico.
-  if (n > 0) {
-    enfTarefas = calloc((size_t)n, sizeof(TarefaEnf));
-    if (enfTarefas) {
-      pthread_t fios[TK_FIOS];
-      int criados = 0, q, r, w;
-      for (q = 0; q < n; q++) {
-        enfTarefas[q].d = &saida[q];
-        snprintf(enfTarefas[q].tipo, sizeof enfTarefas[q].tipo, "%s", saida[q].tipo);
-      }
-      enfN = n; enfProx = 0;
-      for (q = 0; q < TK_FIOS; q++)
-        if (pthread_create(&fios[criados], NULL, fioEnfeitar, NULL) == 0) criados++;
-      if (!criados) fioEnfeitar(NULL);      // sem fios: em serie, mesmo resultado
-      for (q = 0; q < criados; q++) pthread_join(fios[q], NULL);
-
-      for (r = 0, w = 0; r < n; r++)
-        if (enfTarefas[r].ok) { if (w != r) saida[w] = saida[r]; w++; }
-      n = w;
-      free(enfTarefas); enfTarefas = NULL; enfN = 0;
-    } else {
-      // Sem memoria para a fila: em serie, no proprio fio.
-      int r, w;
-      for (r = 0, w = 0; r < n; r++)
-        if (enfeitar(&saida[r], saida[r].tipo)) { if (w != r) saida[w] = saida[r]; w++; }
-      n = w;
-    }
-  }
+  n = trakt_enfeitar_lote(saida, n);
 
   printf("[trakt] %d em andamento\n", n);
   fflush(stdout);

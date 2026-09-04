@@ -171,16 +171,19 @@ int cat_acrescentar_lote(const CatItem *v, int qtd, int *saidaIdx);
 // toque parecer sem efeito.
 void cat_definir_na_lista(int i, int naLista);
 
-// Grava onde o dono parou NESTE app. Ate agora o progresso so era LIDO (do app
-// web); sem isto, assistir pelo app nativo nao mudava nada na tela.
-//
-// Vai para <arte>/progresso.txt e nao para o SQLite do app web: aquele arquivo
-// pertence a outro processo, que o mantem aberto e em cache — escrever la de
-// fora corromperia o estado dele. Unir as duas fontes e trabalho a parte; por
-// enquanto o que este app grava ganha do que veio de la, que e o certo, porque
-// e mais recente.
+// Grava onde o dono parou NESTE app: escreve em progresso.c (pendente, com a
+// chave do web) e atualiza o item. E o caminho do player.
 void cat_salvar_progresso(int indice, double posSeg, double durSeg);
 void cat_salvar_progresso_ep(int indice, double posSeg, double durSeg, int temporada, int episodio);
+
+// So a MEMORIA do item (barra, minutos restantes, episodio em andamento), sem
+// tocar em arquivo. E o que o sync usa para o que veio da conta — a decisao de
+// gravar ou nao ja foi tomada em progresso.c.
+void cat_aplicar_progresso(int indice, double posSeg, double durSeg, int temporada, int episodio);
+
+// O item passa a apontar para outro episodio, sem mexer em progresso. Pos-play
+// usa ao pular para o proximo: e dele que sai o rotulo do player.
+void cat_apontar_episodio(int indice, int temporada, int episodio);
 
 // Episodios do titulo `indiceItem`. Filme devolve 0 — e o que a tela usa para
 // decidir se mostra a secao de episodios.
