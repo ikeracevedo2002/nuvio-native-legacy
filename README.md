@@ -10,6 +10,24 @@ libAcbAPI — on a hardware plane behind the GL surface, not in a browser.
 **[Download the .ipk](https://github.com/iqui27/nuvio-native-legacy/releases/latest)**
 · [Install guide](INSTALL.md)
 
+## Which build fits your TV
+
+| | webOS 3 | webOS 4.x | webOS 5+ |
+|---|---|---|---|
+| **This one** (native C/SDL2) | no | **yes** | no — see below |
+| [Web fork](https://github.com/iqui27/NuvioTVSmart-legacy-webos) (JavaScript) | preview builds | yes | yes, run on webOS 5 |
+
+This build's video path goes through `libAcbAPI`, which LG removed in webOS 5.
+On a newer set the app starts, the UI runs, and nothing plays. For those TVs the
+[web fork](https://github.com/iqui27/NuvioTVSmart-legacy-webos) is the one to
+use — it is plain JavaScript with no such dependency. Its
+[webOS 4 release](https://github.com/iqui27/NuvioTVSmart-legacy-webos/releases/tag/webos-port-1.0.5)
+is tuned for Chromium 53 and low RAM, which is also why it tends to be lighter
+than a current build on newer hardware, and it carries preview builds for
+webOS 3 (C8, B7) that this native port does not target at all.
+
+Both are unofficial and not affiliated with NuvioMedia.
+
 ## What works
 
 - Sign in on the TV with a QR code; the session survives reboots
