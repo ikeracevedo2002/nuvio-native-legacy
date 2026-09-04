@@ -184,7 +184,11 @@ int col_definir_json(const char *json) {
   count = 0;
   for (const char *c = arr; c && *c == '{' && count < COL_MAX; c = js_prox(js_fim(c))) lerColecaoWeb(c, js_fim(c));
   novas = count;
-  if (!novas) { count = antes; printf("[colecoes] conta veio vazia; mantendo as locais (%d)\n", antes); }
+  if (!novas) {
+    count = antes;
+    printf("[colecoes] conta veio vazia; mantendo as locais (%d) | %u bytes, comeca \"%.60s\", arr=%s\n",
+           antes, (unsigned)strlen(json), json, arr ? "sim" : "nao");
+  }
   else printf("[colecoes] %d pastas vindas da conta\n", novas);
   free(solto);
   return novas;
