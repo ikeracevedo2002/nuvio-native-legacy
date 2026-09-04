@@ -535,14 +535,17 @@ void cat_salvar_progresso_ep(int indice, double posSeg, double durSeg, int tempo
 
 int cat_n_episodios(int indiceItem) {
   int m = cat_n();
-  if (m < 1) return 0;
+  // epQtd so nasce em garantirFaixas, que em cat_carregar vem DEPOIS de
+  // aplicar o progresso do disco — e aplicar progresso de serie pergunta
+  // pelos episodios. Sem esta guarda o arranque caia com progresso gravado.
+  if (m < 1 || !epQtd) return 0;
   indiceItem = ((indiceItem % m) + m) % m;
   return epQtd[indiceItem];
 }
 
 const CatEp *cat_episodio(int indiceItem, int i) {
   int m = cat_n();
-  if (m < 1) return NULL;
+  if (m < 1 || !epQtd || !epIni) return NULL;
   indiceItem = ((indiceItem % m) + m) % m;
   if (i < 0 || i >= epQtd[indiceItem]) return NULL;
   return &eps[epIni[indiceItem] + i];
