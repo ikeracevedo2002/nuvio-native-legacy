@@ -9,6 +9,7 @@ typedef struct {
   char frameDir[600];
   char detailHero[512];
   int editorial; /* 1: legacy vector export; 2: approved cinematic image pair */
+  int local;     /* 1: veio do collections.json do pacote (arte e ajustes curados aqui) */
   int frames, hideTitle, nSources;
   ColSource sources[COL_SOURCE_MAX];
 } ColFolder;

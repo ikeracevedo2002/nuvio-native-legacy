@@ -90,6 +90,7 @@ int col_carregar(const char *dir) {
         js_texto(s,se,"type",a->type,sizeof a->type);js_texto(s,se,"catId",a->catId,sizeof a->catId);js_texto(s,se,"genre",a->genre,sizeof a->genre);
         if(a->base[0]&&a->type[0]&&a->catId[0])v->nSources++;
       }
+      v->local=1;
       if(v->nSources&&v->title[0])count++;
     }
   }free(body);return count;
@@ -180,10 +181,29 @@ int col_definir_json(const char *json) {
   // js_raiz_array pula o '[' e para no primeiro elemento, como js_array faz.
   arr = *json == '[' ? js_raiz_array(json) : js_array(json, fim, "collections");
   if (!arr) { free(solto); return 0; }
-  // Le por cima do que estava: a conta manda a lista inteira.
+  // A conta manda o CONJUNTO e a ordem. Mas o pacote traz as mesmas pastas
+  // (mesmo id: o collections.json e gerado do perfil do dono) com arte editorial,
+  // quadros de animacao e ajustes curados que a conta nao tem — a versao local
+  // da pasta e a que fica, com grupo e titulo da conta. Sem isto cada pull
+  // trocava a arte curada pela capa crua do CDN.
+  ColFolder *antigas = malloc(sizeof(ColFolder) * (size_t)(antes > 0 ? antes : 1));
+  if (antigas) memcpy(antigas, folders, sizeof(ColFolder) * (size_t)antes);
   count = 0;
   for (const char *c = arr; c && *c == '{' && count < COL_MAX; c = js_prox(js_fim(c))) lerColecaoWeb(c, js_fim(c));
   novas = count;
+  if (novas && antigas) {
+    int casadas = 0;
+    for (int i = 0; i < count; i++) for (int j = 0; j < antes; j++) {
+      if (!antigas[j].local || strcmp(antigas[j].id, folders[i].id)) continue;
+      ColFolder v = antigas[j];
+      snprintf(v.group, sizeof v.group, "%s", folders[i].group);
+      snprintf(v.groupId, sizeof v.groupId, "%s", folders[i].groupId);
+      snprintf(v.title, sizeof v.title, "%s", folders[i].title);
+      folders[i] = v; casadas++; break;
+    }
+    printf("[colecoes] %d pastas da conta casaram com a arte do pacote\n", casadas);
+  }
+  free(antigas);
   if (!novas) {
     count = antes;
     printf("[colecoes] conta veio vazia; mantendo as locais (%d) | %u bytes, comeca \"%.60s\", arr=%s\n",
