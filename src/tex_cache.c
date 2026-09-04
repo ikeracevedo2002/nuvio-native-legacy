@@ -7,6 +7,7 @@
 #include "layout.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include "webp.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -550,6 +551,8 @@ static int threadDecode(void *arg) {
     }
     SDL_Surface *bruta = IMG_Load(caminho);
     SDL_Surface *conv = NULL;
+    // O SDL2_image desta TV nao le WebP; a libwebp do sistema le (webp.c).
+    if (!bruta) bruta = webp_carregar(caminho);
     if (bruta) {
       conv = SDL_ConvertSurfaceFormat(bruta, SDL_PIXELFORMAT_ABGR8888, 0);
       SDL_FreeSurface(bruta);

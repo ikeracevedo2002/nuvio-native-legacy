@@ -392,6 +392,8 @@
   { "julho", "July" },
   { "junho", "June" },
   { "limpar", "clear" },
+  { "lista", "list" },
+  { "listas", "lists" },
   { "maio", "May" },
   { "março", "March" },
   { "novembro", "November" },
