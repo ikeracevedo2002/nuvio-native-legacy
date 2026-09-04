@@ -51,6 +51,7 @@ docker run --rm --platform linux/arm64 --env-file "$ENVF" \
     -DNV_TRAKT_CLIENT_SECRET="\"$NV_TRAKT_CLIENT_SECRET\"" \
     -DNV_SIMKL_CLIENT_ID="\"$NV_SIMKL_CLIENT_ID\"" \
     -DNV_SIMKL_APP="\"$NV_SIMKL_APP\"" \
+    -DNV_TMDB_API_KEY="\"$NV_TMDB_API_KEY\"" \
     -I$SR/usr/include -I$SR/usr/include/SDL2 \
     -lSDL2 -lSDL2_image -lSDL2_ttf -lGLESv2 -lEGL -ldl -lpthread -lm'
 
@@ -232,6 +233,11 @@ if [ "$LOCAL" != "$REMOTO" ]; then
 fi
 echo "    ok ($LOCAL)"
 
+# launch NAO reinicia um app que ja esta rodando: so o traz para frente (ver
+# FERRAMENTAS.md). Dois deploys desta tarde foram lidos no log de um processo
+# antigo por isso. Matar antes; o SAM relanca o binario novo.
+PID=$($SSH "root@$TV_IP" "pidof nuvio-proto" 2>/dev/null | tr -d "\r")
+if [ -n "$PID" ]; then echo "==> encerrando processo antigo ($PID)"; $SSH "root@$TV_IP" "kill $PID"; sleep 2; fi
 echo "==> lancando"
 ( sleep 2
   printf 'luna-send -n 1 -f luna://com.webos.applicationManager/launch '"'"'{"id":"%s"}'"'"'\n' "$APP_ID"

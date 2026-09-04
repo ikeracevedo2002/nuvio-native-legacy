@@ -59,6 +59,13 @@ void desc_tmdb(const char *dirArte) {
   char caminho[600];
   FILE *f;
   snprintf(dirArteDesc, sizeof dirArteDesc, "%s", dirArte ? dirArte : ".");
+  // Chave DO PACOTE, como o web faz (TMDB_API_KEY do local.properties vira
+  // config.js no build). Sem ela, quem nao gravou chave propria na conta ficava
+  // sem elenco, ficha, colecao e notas — e quase ninguem grava. A da conta,
+  // quando existe, continua ganhando (desc_tmdb_definir chega depois).
+#ifdef NV_TMDB_API_KEY
+  if (!tmdbChave[0] && NV_TMDB_API_KEY[0]) { snprintf(tmdbChave, sizeof tmdbChave, "%s", NV_TMDB_API_KEY); printf("[desc] tmdb: chave do pacote\n"); }
+#endif
   snprintf(caminho, sizeof caminho, "%s/tmdb.txt", dirArte ? dirArte : ".");
   f = fopen(caminho, "r");
   if (!f) return;
