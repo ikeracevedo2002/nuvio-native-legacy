@@ -82,9 +82,12 @@ static void puxarAddons(void) {
   // MEDIDO: `sync_pull_addons` NAO EXISTE neste servidor (PGRST202), e a
   // tabela `tv_addons` tambem nao (PGRST205). O unico caminho que responde e a
   // tabela `addons`, que e exatamente o caminho feliz do app web.
+  // perfis_ativo_addons(), nao perfis_ativo(): um perfil marcado com
+  // uses_primary_plugins LE os addons do perfil 1. Pedindo pelo indice dele a
+  // resposta vinha vazia e o perfil abria sem addon nenhum.
   snprintf(consulta, sizeof consulta,
            "user_id=eq.%s&profile_id=eq.%d&select=*&order=sort_order.asc",
-           dono, perfis_ativo());
+           dono, perfis_ativo_addons());
   // Com a chave anonima o RLS responde 401 "permission denied for table
   // addons": ler as linhas de alguem exige o token de quem esta pedindo.
   r = sessao_tabela("addons", consulta, &st);
@@ -125,7 +128,10 @@ static void empurrarAddons(void) {
 
   jsw_iniciar(&w);
   jsw_obj_ini(&w);
-  jsw_ci(&w, "p_profile_id", perfis_ativo());
+  // O MESMO perfil da leitura. Ler do perfil 1 e escrever no indice do perfil
+  // atual criaria uma copia divergente a cada sync; escrever no 1 sem ler dele
+  // sobrescreveria os addons de quem compartilha.
+  jsw_ci(&w, "p_profile_id", perfis_ativo_addons());
   jsw_chave(&w, "p_addons");
   jsw_arr_ini(&w);
   for (i = 0; i < n; i++) {
@@ -479,10 +485,15 @@ void sync_passo(unsigned agoraMs) {
   fioVivo = 0;
   fioPronto = 0;
 
-  if (temAddonsRem) { addons_definir_lista(addonsRem, nAddonsRem); temAddonsRem = 0; }
-  if (temTraktRem)  { trakt_definir(traktTok, nuvem_trakt_cliente()); temTraktRem = 0; }
+  // Uma credencial que muda o CONTEUDO do catalogo obriga a remontar. Vale
+  // para o Trakt (fileiras proprias) e para os addons (sao a fonte dos
+  // catalogos). A chave do TMDB e do mdblist so enriquecem o que ja esta la.
+  { int remontar = 0;
+  if (temAddonsRem) { addons_definir_lista(addonsRem, nAddonsRem); temAddonsRem = 0; remontar = 1; }
+  if (temTraktRem)  { trakt_definir(traktTok, nuvem_trakt_cliente()); temTraktRem = 0; remontar = 1; }
   if (temTmdb)      { desc_tmdb_definir(tmdbKey);   temTmdb = 0; }
   if (temMdb)       { extras_definir_chave(mdbKey); temMdb = 0; }
+  if (remontar) desc_repetir(); }
   if (temAjustesBlob && ajustesBlob) {
     ajustes_aplicar_blob(ajustesBlob);
     free(ajustesBlob);

@@ -1,4 +1,5 @@
 #include "text.h"
+#include "idioma.h"
 #include "gfx.h"
 #include "layout.h"
 #include "marco.h"
@@ -534,12 +535,12 @@ static TxtLinha linhaFamilia(TxtEstilo estilo, const char *s, int r, int g,
 }
 
 TxtLinha txt_linha(TxtEstilo estilo, const char *s, int r, int g, int b, int a) {
-  return linhaFamilia(estilo, s, r, g, b, a, TXT_FAMILIA_INTER);
+  return linhaFamilia(estilo, i18n(s), r, g, b, a, TXT_FAMILIA_INTER);
 }
 
 TxtLinha txt_linha_familia(TxtEstilo estilo, const char *s, int r, int g,
                            int b, int a, TxtFamilia familia) {
-  return linhaFamilia(estilo, s, r, g, b, a, familia);
+  return linhaFamilia(estilo, i18n(s), r, g, b, a, familia);
 }
 
 void txt_desenhar(TxtLinha l, float x, float y) { txt_desenhar_alpha(l, x, y, 1.0f); }
@@ -610,7 +611,12 @@ TxtLinha txt_linha_corta(TxtEstilo estilo, const char *s, int r, int g, int b,
 TxtLinha txt_linha_corta_familia(TxtEstilo estilo, const char *s, int r, int g,
                                  int b, int a, float maxW,
                                  TxtFamilia familia) {
-  TxtLinha l = txt_linha_familia(estilo, s, r, g, b, a, familia);
+  // Traduzir ANTES de cortar: o corte mede a largura e insere as reticencias,
+  // e medir o portugues para desenhar o ingles poe as reticencias no lugar
+  // errado — ou corta um texto que caberia inteiro.
+  TxtLinha l;
+  s = i18n(s);
+  l = txt_linha_familia(estilo, s, r, g, b, a, familia);
   if (!s || !*s || (float)l.w <= maxW) return l;
   char buf[512];
   size_t n = strlen(s);
@@ -637,6 +643,8 @@ TxtLinha txt_linha_corta_familia(TxtEstilo estilo, const char *s, int r, int g,
 
 float txt_bloco(TxtEstilo estilo, const char *s, int r, int g, int b,
                 float x, float y, float larg, float leading, float alpha, int maxLinhas) {
+  // Mesma razao do corte: a quebra de linha e feita no texto final.
+  s = i18n(s);
   if (!s || !*s) return 0.0f;
   char linha[512]; linha[0] = 0;
   float usado = 0.0f;
@@ -683,6 +691,8 @@ float txt_bloco(TxtEstilo estilo, const char *s, int r, int g, int b,
 float txt_bloco_dir(TxtEstilo estilo, const char *s, int r, int g, int b,
                     float xDir, float y, float larg, float leading,
                     float alpha, int maxLinhas) {
+  // Mesma razao do corte: a quebra de linha e feita no texto final.
+  s = i18n(s);
   if (!s || !*s) return 0.0f;
   char linha[512]; linha[0] = 0;
   float usado = 0.0f;

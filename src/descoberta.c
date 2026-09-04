@@ -470,6 +470,10 @@ int desc_busca_n(const char *termo) {
 
 
 static int buscando;
+// Lido pelo fio de montagem no fim do ciclo e escrito pelo laco principal.
+// `volatile` porque sao fios diferentes; nao ha corrida real de valor — o pior
+// caso e uma remontagem a mais, que e barata perto de perder o pedido.
+static volatile int repetirAoFim;
 static pthread_t fio, fioEp;
 static int epItem = -1, epTemp, fioEpVivo;
 
@@ -1076,6 +1080,10 @@ static void *montar(void *u) {
   fflush(stdout);
   free(lote);
   buscando = 0;
+  // Um pedido que chegou COM o ciclo no ar roda agora, com as credenciais que
+  // entraram no meio do caminho. Zerar a marca antes de disparar evita que uma
+  // falha de pthread_create deixe o pedido preso para sempre.
+  if (repetirAoFim) { repetirAoFim = 0; desc_iniciar(); }
   return NULL;
 }
 
@@ -1084,6 +1092,19 @@ void desc_iniciar(void) {
   buscando = 1;
   if (pthread_create(&fio, NULL, montar, NULL) != 0) buscando = 0;
   else pthread_detach(fio);
+}
+
+// Remontar depois de uma mudanca de credencial (vincular o Trakt, receber a
+// chave do TMDB pela conta). Chamar desc_iniciar() direto NAO resolve: se um
+// ciclo estiver no ar ele volta calado, e o pedido se perde justamente no caso
+// comum — a pessoa vincula o Trakt enquanto o sync do arranque ainda roda, e as
+// fileiras do Trakt so aparecem no proximo arranque. Foi o relato "ativa o
+// trakt e nao atualiza".
+void desc_repetir(void) {
+  if (!buscando) { desc_iniciar(); return; }
+  repetirAoFim = 1;
+  printf("[desc] remontagem pedida; roda ao fim do ciclo atual\n");
+  fflush(stdout);
 }
 
 // --- episodios sob demanda ---------------------------------------------------

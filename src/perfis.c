@@ -65,8 +65,11 @@ int perfis_puxar(void) {
       if (idx <= 0) idx = js_num(p, f, "id", 0);
       if (idx <= 0) continue;
       tmp[novos].indice = (int)idx;
+      // "ContaPerfil %d" ficou aqui quando a struct Perfil virou ContaPerfil
+      // para nao colidir com o trakt.h legado. O tipo mudou de nome; o que o
+      // usuario le, nao.
       if (!js_texto(p, f, "name", tmp[novos].nome, sizeof tmp[novos].nome))
-        snprintf(tmp[novos].nome, sizeof tmp[novos].nome, "ContaPerfil %d", (int)idx);
+        snprintf(tmp[novos].nome, sizeof tmp[novos].nome, "Perfil %d", (int)idx);
       js_texto(p, f, "avatar_url", tmp[novos].avatarUrl, sizeof tmp[novos].avatarUrl);
       if (!js_texto(p, f, "avatar_color_hex", tmp[novos].corHex, sizeof tmp[novos].corHex))
         snprintf(tmp[novos].corHex, sizeof tmp[novos].corHex, "#1E88E5");
@@ -74,6 +77,10 @@ int perfis_puxar(void) {
         // Sem o campo, o perfil 1 e o primario — e a mesma regra do web.
         tmp[novos].primario = js_bruto(p, f, "is_primary", b, sizeof b)
                               ? (strcmp(b, "true") == 0) : ((int)idx == 1); }
+      { char b[16];
+        tmp[novos].usaAddonsDoPrimario =
+          js_bruto(p, f, "uses_primary_plugins", b, sizeof b)
+          ? (strcmp(b, "true") == 0) : 0; }
       novos++;
     }
     if (novos > 0) { memcpy(lista, tmp, sizeof lista); n = novos; }
@@ -115,6 +122,19 @@ const ContaPerfil *perfis_item_ativo(void) {
 }
 const char   *perfis_dono(void)      { return dono; }
 int           perfis_ativo(void)     { return ativo > 0 ? ativo : 1; }
+
+// Addons NAO sao por perfil quando o perfil diz herdar os do primario.
+//
+// MEDIDO no app web (js/data/local/pluginStore.js:26):
+//   return profile?.usesPrimaryPlugins && normalized !== "1" ? "1" : normalized;
+// O nativo ignorava isso e pedia sempre profile_id=<indice>, entao um perfil
+// com a marca voltava com ZERO addons — o relato "os perfis nao sincronizam os
+// addons". O perfil 1 nunca e redirecionado: ele E a origem.
+int perfis_ativo_addons(void) {
+  const ContaPerfil *p = perfis_item_ativo();
+  int a = perfis_ativo();
+  return (p && p->usaAddonsDoPrimario && a != 1) ? 1 : a;
+}
 
 void perfis_carregar_ativo(void) {
   char *b = dados_ler(ARQ_ATIVO);

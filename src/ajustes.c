@@ -289,7 +289,11 @@ static int valor[AJ_N] = {
   126,              /* largura do item, dp (fabrica; o perfil do dono usa 120) */
   12,               /* arredondamento, dp */
 
-  0, 0,             /* idioma, animacoes */
+  // Idioma 1 = English. O padrao NAO e o do dono do pacote: quem instala vem
+  // do release publico, e ler uma interface em portugues sem ter escolhido e
+  // pior do que ler em ingles sem ter escolhido. Quem prefere portugues troca
+  // em Ajustes -> Interface, e a escolha fica gravada.
+  1, 0,             /* idioma, animacoes */
   0, 0,             /* versao, espaco */
 };
 

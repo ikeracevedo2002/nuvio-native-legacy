@@ -25,6 +25,9 @@ typedef struct {
   char avatarUrl[300];
   int  primario;        // is_primary
   int  temPin;          // veio de sync_pull_profile_locks
+  // uses_primary_plugins: este perfil LE os addons do perfil 1 em vez de ter
+  // os seus. Ver perfis_ativo_addons().
+  int  usaAddonsDoPrimario;
 } ContaPerfil;
 
 // Busca os perfis e o dono. BLOQUEIA — chamar do fio de sync.
@@ -41,6 +44,9 @@ const char   *perfis_dono(void);        // uuid de get_sync_owner; "" se nao vei
 // ContaPerfil ativo. Persistido em disco: reescolher a cada arranque seria uma
 // pergunta que o app ja sabe responder.
 int  perfis_ativo(void);                // profile_index; 1 quando nada escolhido
+// O perfil de onde SAEM OS ADDONS: igual a perfis_ativo(), exceto quando o
+// perfil herda os do primario (uses_primary_plugins), e ai e 1.
+int  perfis_ativo_addons(void);
 void perfis_definir_ativo(int indice);
 void perfis_carregar_ativo(void);       // le do disco; chamar no arranque
 

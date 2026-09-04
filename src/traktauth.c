@@ -4,6 +4,7 @@
 #include "rede.h"
 #include "trakt.h"
 #include "sync.h"
+#include "descoberta.h"
 #include "js.h"
 #include "jsw.h"
 #include <stdio.h>
@@ -274,6 +275,10 @@ void traktauth_passo(unsigned agoraMs) {
       jsw_obj_fim(&c);
       sync_empurrar_credencial("trakt", jsw_texto_final(&c));
       jsw_livre(&c); }
+    // O catalogo foi montado SEM Trakt: continuar assistindo, "entre amigos" e
+    // as listas dele nao existem nas fileiras que estao na tela. Sem esta
+    // remontagem, vincular so tinha efeito visivel no proximo arranque.
+    desc_repetir();
     printf("[trakt] vinculado nesta TV\n");
     fflush(stdout);
   }

@@ -16,6 +16,11 @@
 // Dispara a montagem do catalogo num fio proprio. Volta na hora.
 void desc_iniciar(void);
 
+// Remonta o catalogo porque uma CREDENCIAL mudou. Diferente de desc_iniciar():
+// se um ciclo ja estiver no ar, o pedido fica guardado e roda ao fim dele, em
+// vez de ser descartado. Chamar do fio principal.
+void desc_repetir(void);
+
 // Le a chave do TMDB (art/tmdb.txt). Sem ela o elenco fica so com nomes, sem
 // foto nem personagem.
 void desc_tmdb(const char *dirArte);
