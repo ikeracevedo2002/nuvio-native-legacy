@@ -22,6 +22,7 @@
 #include "simklauth.h"
 #include "text.h"
 #include "vertudo.h"
+#include "posplay.h"
 #include "ctxmenu.h"
 #include "marco.h"
 #include <string.h>
@@ -637,6 +638,38 @@ void app_atualizar(float dt, Uint32 agora) {
   player_atualizar(dt, agora);
   detail_atualizar(dt, agora);
   menu_atualizar(dt, agora);
+  // PÓS-REPRODUÇÃO. O proximo episodio reabre a busca de fonte com o id novo;
+  // o titulo relacionado sai do player e abre o detalhe, que e onde o dono
+  // escolhe se quer mesmo assistir.
+  { int t = 0, e = 0;
+    if (posplay_pediu_episodio(&t, &e)) {
+      const CatItem *ci = cat_item(player_indice());
+      if (ci && ci->imdb[0]) {
+        char alvo[48];
+        snprintf(alvo, sizeof alvo, "%s:%d:%d", ci->imdb, t, e);
+        // O item passa a apontar para o episodio NOVO: e dele que sai o
+        // rotulo do player e o alvo do proximo pos-reproducao.
+        cat_salvar_progresso_ep(player_indice(), 0.0, 0.0, t, e);
+        addons_buscar(alvo, "series");
+        aguardandoFonte = 1;
+      }
+    } }
+  { int i = posplay_pediu_titulo();
+    if (i >= 0) {
+      const CatItem *ci = cat_item(i);
+      HomeItem it;
+      player_encerrar();
+      memset(&it, 0, sizeof it);
+      it.indice = i;
+      it.rect = (GfxRect){ NV_TELA_W * 0.5f - 124.0f, NV_TELA_H * 0.5f - 186.0f,
+                           248.0f, 372.0f };
+      it.arte   = ci ? (ci->poster[0] ? ci->poster : ci->backdrop) : NULL;
+      it.titulo = ci ? ci->titulo : NULL;
+      it.genero = ci ? ci->genero : NULL;
+      it.meta   = ci ? ci->meta : NULL;
+      detail_abrir(&it);
+    } }
+
   vertudo_atualizar(dt, agora);
   ctx_atualizar(dt, agora);
   { int i = ctx_pediu_detalhes();

@@ -25,6 +25,7 @@
 //      esta pausado. Pausado sem controles o usuario fica olhando um quadro
 //      congelado sem saber o que houve.
 #include "player.h"
+#include "posplay.h"
 #include "video.h"
 #include "faixas.h"
 #include "gfx.h"
@@ -525,6 +526,7 @@ void player_abrir(int indiceCatalogo, const char *url) {
   int n = cat_n(); if (n < 1) n = 1;
   idx = ((indiceCatalogo % n) + n) % n;
   aberto = 1; saindo = 0; pediuSair = 0; barraFoco = 0;
+  posplay_fechar();   // titulo novo, painel do anterior nao vale mais
   // Guia parental do titulo: pedido AQUI e nao no desenho, para que a resposta
   // ja tenha chegado quando os controles aparecerem pela primeira vez.
   { const CatItem *ci = cat_item(idx);
@@ -634,6 +636,9 @@ static void saltar(int dir) {
 }
 
 void player_evento(const SDL_Event *e) {
+  // O painel de pos-reproducao come a tecla quando esta no ar; ele e a coisa
+  // mais recente na tela e o dono esta olhando para ele.
+  if (posplay_evento(e)) return;
   if (!aberto || saindo || e->type != SDL_KEYDOWN) return;
   SDL_Keycode k = e->key.keysym.sym;
 
@@ -761,6 +766,13 @@ void player_atualizar(float dt, Uint32 agora) {
     posSeg += dt;
     if (posSeg >= duracaoSeg) { posSeg = duracaoSeg; tocando = 0; }
   }
+
+  // PÓS-REPRODUÇÃO: o proximo episodio ou os relacionados, no fim do titulo.
+  { const CatItem *ci = cat_item(idx);
+    int eSerie = ci && !strcmp(ci->tipo, "series");
+    posplay_atualizar(dt, agora, posSeg, duracaoSeg, eSerie, idx); }
+  // Com o painel no ar os controles nao somem: eles sao a saida do dono.
+  if (posplay_visivel()) ultimoInput = agora;
 
   // Pausado, os controles ficam. Sumir com eles deixaria o usuario diante de um
   // quadro parado sem nenhuma pista de que foi ele quem pausou.
@@ -1297,4 +1309,7 @@ void player_desenhar(Uint32 agora) {
       }
     }
   }
+
+  // POR CIMA DE TUDO: o painel de pos-reproducao e o mais recente na tela.
+  posplay_desenhar(agora);
 }
