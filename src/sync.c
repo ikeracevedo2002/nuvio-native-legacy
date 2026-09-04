@@ -492,7 +492,7 @@ int sync_empurrar_credencial(const char *provider, const char *credJson) {
   jsw_obj_fim(&w);
   r = sessao_rpc("sync_push_provider_credentials", jsw_texto_final(&w), &st);
   jsw_livre(&w);
-  ok = ok2xx(r, st);
+  ok = ok2xx(r, st) ? 1 : (st >= 400 && st < 500 ? -1 : 0);
   if (!ok2xx(r, st)) printf("[sync] push de credencial %s falhou (HTTP %d): %.200s\n", provider, st, r ? r : "");
   else printf("[sync] credencial %s guardada na conta\n", provider);
   free(r);

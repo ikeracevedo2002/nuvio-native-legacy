@@ -106,7 +106,10 @@ void sync_reaplicar_ajustes(void);
 // Existe por causa do Trakt: a conta do dono nao tinha a linha `trakt`, entao
 // vincular na TV nao ajudava o celular. Vincular aqui passa a ESCREVER na
 // conta, que e o que o app web faz.
-// 1 quando a conta aceitou; 0 quando nao (quem chama decide se tenta depois).
+// 1 quando a conta aceitou; 0 sem resposta ou 5xx (vale tentar depois); -1 em
+// 4xx (o servidor recusou de proposito — repetir nao muda). MEDIDO: para
+// "trakt" este servidor responde 400 22023 "Unsupported provider credential",
+// e o proprio app web documenta a mesma recusa (traktCredentialSyncService.js).
 int  sync_empurrar_credencial(const char *provider, const char *credJson);
 
 void sync_encerrar(void);

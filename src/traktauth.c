@@ -269,7 +269,10 @@ static void empurrarParaConta(void) {
   jsw_ci(&c, "created_at", (int)(criadoEm ? criadoEm : (long)time(NULL)));
   jsw_ci(&c, "expires_in", (int)(expiraSeg > 0 ? expiraSeg : 86400));
   jsw_obj_fim(&c);
-  if (sync_empurrar_credencial("trakt", jsw_texto_final(&c))) { pushPendente = 0; gravar(); }
+  // Recusa 4xx tambem encerra a pendencia: este servidor nao aceita "trakt"
+  // (400 22023, igual ao que o web ve) e insistir a cada ciclo seria ruido.
+  // O vinculo continua valendo nesta TV, guardado em disco.
+  if (sync_empurrar_credencial("trakt", jsw_texto_final(&c)) != 0) { pushPendente = 0; gravar(); }
   jsw_livre(&c);
 }
 
