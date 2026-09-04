@@ -1039,10 +1039,16 @@ static void desenhaHero(Uint32 agora, float saida) {
         float x=ajustes_conteudo_x(),a=1-saida;
         GLuint art=tex_obter_hero(folder->hero);
         GfxRect header={0,0,1920,500};
-        if(art)gfx_rect(header,art,GFX_TEXTO,0,0,0,0,1,1,1,a);
+        if(folder->editorial==2&&tex_aspecto(folder->hero)>0) {
+          float aspect=tex_aspecto(folder->hero);
+          header.w=fminf(1920,header.h*aspect);header.h=header.w/aspect;
+          header.x=1920-header.w;
+        }
+        if(art)gfx_rect(header,art,folder->editorial==2?GFX_EDITORIAL:GFX_TEXTO,0,0,0,0,1,1,1,a);
         heroArteRect=header;
         int director=!strcasecmp(folder->group,"Directors");
-        txt_desenhar_alpha(txt_linha(TXT_HERO_META,director?"DIRETORES":"COLEÇÕES",190,193,200,255),x,122,a);
+        const char *section=director?"DIRETORES":!strcmp(folder->group,"Streaming")?"STREAMING":!strcmp(folder->group,"Themes")?"TEMAS":!strcmp(folder->group,"Genres")?"GÊNEROS":"COLEÇÕES";
+        txt_desenhar_alpha(txt_linha(TXT_HERO_META,section,190,193,200,255),x,122,a);
         txt_bloco(TXT_TITULO1,folder->title,244,243,247,x,183,860,72,a,2);
         char caption[160];
         snprintf(caption,sizeof caption,"%s  ·  %d %s",director?"Filmografia":"Seleção de cinema e séries",folder->nSources,folder->nSources==1?"lista":"listas");

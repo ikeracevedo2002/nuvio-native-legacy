@@ -453,6 +453,16 @@ static const char *FS_CORPO[GFX_NMODOS] = {
   "  if(m<=0.001) discard;\n"
   "  gl_FragColor=vec4(uCor.rgb,uCor.a*m);\n"
   "}\n",
+
+  // Production illustration: do not crop, recolor, flatten or add fake detail.
+  // The caller fits the source aspect within the header, anchored right.
+  "void main(){\n"
+  "  vec4 c=texture2D(uTex,vUv);\n"
+  "  float edge=smoothstep(0.0,0.32,vUv.x);\n"
+  "  edge*=smoothstep(0.0,0.045,vUv.y);\n"
+  "  edge*=1.0-smoothstep(0.84,1.0,vUv.y);\n"
+  "  gl_FragColor=vec4(c.rgb,c.a*uCor.a*edge);\n"
+  "}\n",
 };
 
 // Cada corpo declara o que usa; montar so o necessario mantem o shader enxuto.
@@ -467,7 +477,8 @@ static const struct { int sdf, cover; } PRECISA[GFX_NMODOS] = {
   {0,0},   /* GFX_SOCIAL */
   {0,1},   /* GFX_AVATAR */
   {0,0},   /* GFX_RETRATO */
-  {0,0}    /* GFX_DISCO */
+  {0,0},   /* GFX_DISCO */
+  {0,0}    /* GFX_EDITORIAL */
 };
 
 static GLuint compila(GLenum tipo, const char *src) {

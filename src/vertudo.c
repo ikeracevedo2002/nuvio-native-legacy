@@ -278,7 +278,13 @@ static void themeBackground(float a) {
     if(collection->editorial) {
       GLuint art=tex_obter_hero(collection->detailHero);
       /* The content starts at 332; the separate detail illustration ends at 320. */
-      if(art)gfx_rect((GfxRect){0,0,1920,320},art,GFX_TEXTO,0,0,0,0,1,1,1,a);
+      GfxRect header={0,0,1920,320};
+      if(collection->editorial==2&&tex_aspecto(collection->detailHero)>0) {
+        float aspect=tex_aspecto(collection->detailHero);
+        header.w=fminf(1920,header.h*aspect);header.h=header.w/aspect;
+        header.x=1920-header.w;
+      }
+      if(art)gfx_rect(header,art,collection->editorial==2?GFX_EDITORIAL:GFX_TEXTO,0,0,0,0,1,1,1,a);
       return;
     }
     if(grupo("Directors")) {

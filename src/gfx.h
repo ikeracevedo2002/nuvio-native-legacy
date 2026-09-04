@@ -89,7 +89,8 @@ typedef enum {
   // Disco geometrico sólido. Usado como base do avatar e do foco para que o
   // contorno seja sempre concentrico, em vez de ser pintado sobre a foto.
   GFX_DISCO = 21,
-  GFX_NMODOS = 22
+  GFX_EDITORIAL = 22, // unmodified cinematic art, edge fade only; caller fits aspect
+  GFX_NMODOS = 23
 } GfxModo;
 
 typedef struct {

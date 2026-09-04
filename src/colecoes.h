@@ -7,7 +7,7 @@ typedef struct {
   char id[96], title[128], group[64], cover[512], hero[512], logo[512];
   char frameDir[600];
   char detailHero[512];
-  int editorial;
+  int editorial; /* 1: legacy vector export; 2: approved cinematic image pair */
   int frames, hideTitle, nSources;
   ColSource sources[COL_SOURCE_MAX];
 } ColFolder;
