@@ -81,6 +81,11 @@ int trakt_cabecalhos(const char **cab, char *aut, size_t nAut,
 int trakt_carregar(const char *dirArte) {
   char caminho[600], linha[300], *tab;
   FILE *f;
+  // Vinculo feito NESTA TV (traktauth_carregar, que roda antes) ganha do
+  // arquivo do pacote. MEDIDO: art/trakt.txt de desenvolvimento, com token de
+  // 31/08 ja vencido, sobrescrevia o token recem-autorizado a cada arranque e
+  // tudo do Trakt voltava a 401 — "autorizei e continua sem".
+  if (token[0]) { printf("[trakt] vinculo desta TV mantido; arquivo do pacote ignorado\n"); return 1; }
   snprintf(caminho, sizeof caminho, "%s/trakt.txt", dirArte ? dirArte : ".");
   f = fopen(caminho, "r");
   if (!f) { printf("[trakt] sem %s\n", caminho); return 0; }
