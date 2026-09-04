@@ -30,7 +30,7 @@
 
 // Versao do app: mesma string do appinfo.json empacotado. Fica aqui porque a
 // tela nao tem como ler o manifesto em tempo de execucao no aparelho.
-#define AJ_VERSAO       "1.0.1"
+#define AJ_VERSAO       "1.0.2"
 
 #define AJ_LINHA_H       88.0f
 #define AJ_LINHA_GAP      8.0f

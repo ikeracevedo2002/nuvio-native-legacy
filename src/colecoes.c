@@ -22,6 +22,24 @@ const ColFolder *col_por_catalogo(const char *base,const char *type,const char *
     if(!strcmp(v->base,base)&&!strcmp(v->type,type)&&!strcmp(v->catId,id)) return &folders[i];
   }return NULL;
 }
+/* Arte editorial: JPEG primeiro, PNG depois.
+ *
+ * O gerador escrevia PNG 4K e os heros somavam 142 MB — 45% do pacote inteiro,
+ * para imagens SEM canal alfa (colortype 2, conferido nos arquivos), ou seja
+ * pagando o preco do PNG sem usar nada do que ele oferece. Em JPEG a mesma arte
+ * cabe numa fracao disso e a TV nao ve diferenca.
+ *
+ * A ordem importa e o PNG FICA como reserva: quem ja tem o pacote antigo
+ * instalado, ou quem regerar a arte com a ferramenta antiga, continua com a
+ * pagina ilustrada em vez de cair no fundo chapado. */
+static int arteEditorial(char *saida,size_t n,const char *dir,const char *sub,
+                         const char *id,const char *sufixo) {
+  snprintf(saida,n,"%s/%s/%s-%s.jpg",dir,sub,id,sufixo);
+  if(!access(saida,R_OK)) return 1;
+  snprintf(saida,n,"%s/%s/%s-%s.png",dir,sub,id,sufixo);
+  return !access(saida,R_OK);
+}
+
 int col_carregar(const char *dir) {
   char path[700];snprintf(path,sizeof path,"%s/collections.json",dir);
   FILE *f=fopen(path,"rb");if(!f)return 0;
@@ -42,11 +60,17 @@ int col_carregar(const char *dir) {
       snprintf(v->frameDir,sizeof v->frameDir,"%s/collections/%s",dir,v->id);
       /* Local paired artwork survives catalog imports. Activate only a complete pair. */
       char editorial[512];
-      snprintf(editorial,sizeof editorial,"%s/editorial/%s-home.png",dir,v->id);
-      snprintf(v->detailHero,sizeof v->detailHero,"%s/editorial/%s-detail.png",dir,v->id);
-      if(!access(editorial,R_OK)&&!access(v->detailHero,R_OK)) {
+      if(arteEditorial(editorial,sizeof editorial,dir,"editorial",v->id,"home")&&
+         arteEditorial(v->detailHero,sizeof v->detailHero,dir,"editorial",v->id,"detail")) {
         snprintf(v->hero,sizeof v->hero,"%s",editorial);v->editorial=1;
       } else v->detailHero[0]=0;
+      char cinematic[512],cinematicDetail[512];
+      if(arteEditorial(cinematic,sizeof cinematic,dir,"cinematic",v->id,"home")&&
+         arteEditorial(cinematicDetail,sizeof cinematicDetail,dir,"cinematic",v->id,"detail")) {
+        snprintf(v->hero,sizeof v->hero,"%s",cinematic);
+        snprintf(v->detailHero,sizeof v->detailHero,"%s",cinematicDetail);
+        v->editorial=2;
+      }
       for(const char *s=js_array(p,pe,"sources");s&&v->nSources<COL_SOURCE_MAX;s=js_prox(js_fim(s))) {
         const char *se=js_fim(s);ColSource *a=&v->sources[v->nSources];
         js_texto(s,se,"title",a->title,sizeof a->title);js_texto(s,se,"base",a->base,sizeof a->base);
