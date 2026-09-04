@@ -161,3 +161,42 @@ O padrão desta base é medir na TV, não no Mac. Para cada item:
 - para C: comparar a ordem das fileiras na TV com a ordem configurada no app web;
 - em todos: jank a frio e durante playback não pode regredir do baseline em
   `../PENDENCIAS.md` (frio 3183 ms, quente 0, playback 0).
+
+## Anexo C1 — contrato da ordem de catálogos, lido do serviço web
+
+Levantado em `js/core/profile/homeCatalogSettingsSyncService.js` (740 linhas). O
+nativo já chama a RPC em `sync.c:428-430` e descarta a resposta.
+
+**Resposta.** `sync_pull_home_catalog_settings` devolve uma linha com
+`settings_json` (aceitar também `settingsJson`, e a resposta pode vir como array
+de um elemento — linhas 226-233). Dentro dele, dois formatos:
+
+1. **Moderno** — `items: [{addon_id, type, catalog_id, enabled, order}]`, ou
+   `{is_collection: true, collection_id}` para coleção. `type` é normalizado
+   para minúsculas. `enabled` é `!== false`, ou seja, ausente significa ligado.
+2. **Legado** — arrays de chaves soltas. A ordem sai do primeiro que existir
+   entre `catalog_order_keys`, `home_catalog_order`, `catalog_order`, `order`;
+   os ocultos, entre `disabled_catalog_keys`, `hidden_catalog_keys`,
+   `catalog_disabled_keys`, `home_catalog_disabled`, `disabled`.
+
+Mais dois booleanos: `hide_unreleased_content` e `hide_catalog_underline`. Ambos
+só valem quando a chave EXISTE no blob — ausente não é `false`, é "mantém o
+local".
+
+**Chave de identidade.** `syncItemKey()` (linha 190): coleção vira
+`buildCollectionHomeKey(collection_id)`; catálogo vira
+`buildCatalogOrderKey(addon_id, type, catalog_id)`. O nativo precisa montar a
+mesma chave a partir de `catalogo.h` — se as três partes não estiverem
+disponíveis, o item não casa e a ordem remota é ignorada para ele.
+
+**A armadilha, já medida na OLED65C9 e comentada no fonte (linhas 398-410).**
+O remoto só conhece os catálogos que existiam quando foi gravado. Aplicar a
+ordem remota crua REMOVE os que apareceram depois. O log real era
+`{"localItems":54,"remoteItems":43}` em todo boot: 54 nunca igualava 43, a
+assinatura nunca batia, a Home era reescrita e reinvalidada a cada arranque,
+sem nunca convergir.
+
+Regra a portar junto, não depois: **união, não substituição**. Ordem remota
+primeiro, filtrando o que não existe local; depois os locais que o remoto não
+conhece, no fim, na ordem em que já estavam. É a mesma regra que o pull de
+addons deste repo já segue, e pelo mesmo motivo.
