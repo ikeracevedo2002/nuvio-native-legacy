@@ -318,7 +318,11 @@ static void trocaDeTituloSeSolicitada(void) {
   // avisa aqui quando ele entrou. Abrir no fio da rede seria mexer na tela de
   // outro fio; este e o unico lugar que abre titulo.
   { int novo = desc_titulo_pronto();
-    if (novo >= 0) abrirPorIndice(novo); }
+    // Pedido de dentro do PLAYER (relacionado que nao esta no catalogo): o
+    // detalhe abria por baixo do video e ninguem via — "clico e nao faz nada".
+    // O caminho do titulo que JA esta no catalogo (posplay_pediu_titulo)
+    // encerra o player antes; este faz o mesmo.
+    if (novo >= 0) { if (player_aberto()) player_encerrar(); abrirPorIndice(novo); } }
 }
 
 void app_atualizar(float dt, Uint32 agora) {
