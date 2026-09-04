@@ -48,10 +48,10 @@ int col_carregar(const char *dir) {
   char *body=malloc((size_t)size+1);if(!body){fclose(f);return 0;}
   size_t got=fread(body,1,(size_t)size,f);body[got]=0;fclose(f);count=0;
   for(const char *g=js_array(body,NULL,"groups");g;g=js_prox(js_fim(g))) {
-    const char *end=js_fim(g);char group[64];js_texto(g,end,"title",group,sizeof group);
+    const char *end=js_fim(g);char group[64],groupId[64]="";js_texto(g,end,"title",group,sizeof group);js_texto(g,end,"id",groupId,sizeof groupId);
     for(const char *p=js_array(g,end,"folders");p&&count<COL_MAX;p=js_prox(js_fim(p))) {
       const char *pe=js_fim(p);ColFolder *v=&folders[count];memset(v,0,sizeof *v);
-      snprintf(v->group,sizeof v->group,"%s",group);
+      snprintf(v->group,sizeof v->group,"%s",group);snprintf(v->groupId,sizeof v->groupId,"%s",groupId);
       js_texto(p,pe,"id",v->id,sizeof v->id);js_texto(p,pe,"title",v->title,sizeof v->title);
       js_texto(p,pe,"cover",v->cover,sizeof v->cover);js_texto(p,pe,"hero",v->hero,sizeof v->hero);js_texto(p,pe,"logo",v->logo,sizeof v->logo);
       localiza(v->cover,sizeof v->cover,dir);localiza(v->hero,sizeof v->hero,dir);localiza(v->logo,sizeof v->logo,dir);
@@ -90,4 +90,91 @@ void col_cor(const ColFolder *f,float *r,float *g,float *b) {
   else if(strstr(f->title,"Letterboxd")){*r=.07f;*g=.32f;*b=.21f;}
   else if(!strcmp(f->group,"Awards")){*r=.40f;*g=.31f;*b=.095f;}
   else if(!strcmp(f->group,"Directors")){*r=.29f;*g=.24f;*b=.19f;}
+}
+
+// ---------------------------------------------------------------- conta
+
+static void tirarManifest(char *base) {
+  size_t k = strlen(base);
+  if (k > 14 && !strcmp(base + k - 14, "/manifest.json")) base[k - 14] = 0;
+  else while (k && base[k - 1] == '/') base[--k] = 0;
+}
+
+// Uma colecao do web -> N pastas em `folders`. Mesma traducao de
+// tools/import-collections.mjs, sem baixar arte: cover/hero/logo ficam como URL
+// e tex_cache baixa quando desenhar.
+static void lerColecaoWeb(const char *c, const char *ce) {
+  char group[64], groupId[64], fundo[512];
+  js_texto(c, ce, "title", group, sizeof group);
+  js_texto(c, ce, "id", groupId, sizeof groupId);
+  js_texto(c, ce, "backdropImageUrl", fundo, sizeof fundo);
+  if (!group[0]) return;
+  for (const char *p = js_array(c, ce, "folders"); p && count < COL_MAX; p = js_prox(js_fim(p))) {
+    const char *pe = js_fim(p); ColFolder *v = &folders[count]; memset(v, 0, sizeof *v);
+    snprintf(v->group, sizeof v->group, "%s", group);
+    snprintf(v->groupId, sizeof v->groupId, "%s", groupId);
+    js_texto(p, pe, "id", v->id, sizeof v->id); js_texto(p, pe, "title", v->title, sizeof v->title);
+    js_texto(p, pe, "coverImageUrl", v->cover, sizeof v->cover);
+    if (!js_texto(p, pe, "heroBackdropUrl", v->hero, sizeof v->hero)) snprintf(v->hero, sizeof v->hero, "%s", fundo);
+    js_texto(p, pe, "titleLogoUrl", v->logo, sizeof v->logo);
+    { char b[8]; v->hideTitle = js_bruto(p, pe, "hideTitle", b, sizeof b) && strstr(b, "true") ? 1 : 0; }
+    const char *src = js_array(p, pe, "sources");
+    if (!src) src = js_array(p, pe, "catalogSources");
+    for (const char *s = src; s && v->nSources < COL_SOURCE_MAX; s = js_prox(js_fim(s))) {
+      const char *se = js_fim(s); ColSource *a = &v->sources[v->nSources]; char prov[16] = "";
+      memset(a, 0, sizeof *a);
+      js_texto(s, se, "provider", prov, sizeof prov);
+      // tmdb/trakt como fonte de pasta nao tem equivalente aqui: so addon.
+      if (prov[0] && strcasecmp(prov, "addon")) continue;
+      if (!js_texto(s, se, "addonBaseUrl", a->base, sizeof a->base)) js_texto(s, se, "addon_base_url", a->base, sizeof a->base);
+      tirarManifest(a->base);
+      js_texto(s, se, "type", a->type, sizeof a->type);
+      if (!js_texto(s, se, "catalogId", a->catId, sizeof a->catId)) js_texto(s, se, "catalog_id", a->catId, sizeof a->catId);
+      if (!js_texto(s, se, "title", a->title, sizeof a->title) && !js_texto(s, se, "catalogName", a->title, sizeof a->title))
+        snprintf(a->title, sizeof a->title, "%s", a->catId);
+      js_texto(s, se, "genre", a->genre, sizeof a->genre);
+      if (!strcmp(a->genre, "None")) a->genre[0] = 0;
+      if (a->base[0] && a->type[0] && a->catId[0]) v->nSources++;
+    }
+    if (v->nSources && v->title[0]) count++;
+  }
+}
+
+int col_definir_json(const char *json) {
+  char *solto = NULL;
+  const char *arr, *fim;
+  int antes = count, novas;
+  if (!json || !*json) return 0;
+  // Linha da RPC: [{collections_json: ...}] ou {collections_json: ...}.
+  { const char *linha = *json == '[' ? js_raiz_array(json) : json;
+    const char *cj = linha ? strstr(linha, "\"collections_json\"") : NULL;
+    if (cj) {
+      const char *v = strchr(cj + 18, ':');
+      while (v && (*v == ':' || *v == ' ')) v++;
+      if (v && *v == '"') {               // string escapada
+        size_t n = strlen(v);
+        solto = malloc(n + 1);
+        if (!solto) return 0;
+        if (!js_texto(cj, NULL, "collections_json", solto, (unsigned)n + 1)) { free(solto); return 0; }
+        json = solto;
+      } else if (v) json = v;
+    } }
+  fim = json + strlen(json);
+  arr = *json == '[' ? json : js_array(json, fim, "collections");
+  if (!arr) { free(solto); return 0; }
+  // Le por cima do que estava: a conta manda a lista inteira.
+  count = 0;
+  for (const char *c = arr; c && *c == '{' && count < COL_MAX; c = js_prox(js_fim(c))) lerColecaoWeb(c, js_fim(c));
+  novas = count;
+  if (!novas) { count = antes; printf("[colecoes] conta veio vazia; mantendo as locais (%d)\n", antes); }
+  else printf("[colecoes] %d pastas vindas da conta\n", novas);
+  free(solto);
+  return novas;
+}
+
+void col_chave_grupo(const char *group, char *dst, unsigned n) {
+  for (int i = 0; i < count; i++)
+    if (!strcasecmp(folders[i].group, group) && folders[i].groupId[0]) {
+      snprintf(dst, n, "collection_%s", folders[i].groupId); return; }
+  snprintf(dst, n, "collection_%s", group);
 }
