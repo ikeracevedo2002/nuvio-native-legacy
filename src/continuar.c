@@ -1,4 +1,5 @@
 #include "continuar.h"
+#include "idioma.h"
 #include "layout.h"
 #include "text.h"
 #include "anim.h"
@@ -43,9 +44,9 @@ void continuar_desenhar(const CatItem *ci, GfxRect r) {
   if (ci->restanteMin > 0) {
     char selo[48];
     int h = ci->restanteMin / 60, m = ci->restanteMin % 60;
-    if (h && m) snprintf(selo, sizeof selo, "%dh %dmin Restantes", h, m);
-    else if (h) snprintf(selo, sizeof selo, "%dh Restantes", h);
-    else snprintf(selo, sizeof selo, "%dmin Restantes", m);
+    if (h && m) snprintf(selo, sizeof selo, i18n("%dh %dmin Restantes"), h, m);
+    else if (h) snprintf(selo, sizeof selo, i18n("%dh Restantes"), h);
+    else snprintf(selo, sizeof selo, i18n("%dmin Restantes"), m);
     float px = NV_CW_BADGE_PAD_X * esc, py = NV_CW_BADGE_PAD_Y * esc;
     TxtLinha l = txt_linha_corta(TXT_CW_BADGE, selo, 242, 243, 247, 255, largura - 2*px);
     if (l.tex) {

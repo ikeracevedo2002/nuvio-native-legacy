@@ -20,6 +20,7 @@
 //   4. Ao rolar, a arte de fundo NAO desfoca: ela vai a 15% de opacidade em
 //      0.8s. O desfoque gaussiano era do app da Apple TV.
 #include "detail.h"
+#include "idioma.h"
 #include "badges.h"
 #include "marco.h"
 #include "ajustes.h"
@@ -1449,7 +1450,7 @@ static void heroWeb(float a, float desloc) {
   // Em serie o web escreve "Roteirista:"/"Criador:"; em filme, "Diretor:".
   char sup[192] = "";
   if (ci && ci->direcao[0])
-    snprintf(sup, sizeof sup, "%s: %s", ehSerie() ? "Roteirista" : "Diretor",
+    snprintf(sup, sizeof sup, "%s: %s", i18n(ehSerie() ? "Roteirista" : "Diretor"),
              ci->direcao);
 
   const char *sin = sinopseDe(idx);
@@ -1608,10 +1609,10 @@ static void heroWeb(float a, float desloc) {
   if (ci && ci->progresso > 0) {
     char ln[160];
     if (ci->temporada > 0)
-      snprintf(ln, sizeof ln, "Retomada disponível   %d%%   Episódio T%dE%d",
+      snprintf(ln, sizeof ln, i18n("Retomada disponível   %d%%   Episódio T%dE%d"),
                ci->progresso, ci->temporada, ci->episodio);
     else
-      snprintf(ln, sizeof ln, "Retomada disponível   %d%%", ci->progresso);
+      snprintf(ln, sizeof ln, i18n("Retomada disponível   %d%%"), ci->progresso);
     TxtLinha l = txt_linha(TXT_CAPTION, ln, 255, 255, 255, 255);
     txt_desenhar_alpha(l, NV_DETW2_X, yRetom + (NV_DETW_RETOM_H - l.h) * 0.5f,
                        a * 0.82f);
@@ -1779,7 +1780,7 @@ static int temporadaEm(int c) {
 static void rotuloTemporada(int c, char *dst, size_t n) {
   int s = temporadaEm(c);
   if (s == 0) snprintf(dst, n, "Especiais");
-  else snprintf(dst, n, "Temporada %d", s);
+  else snprintf(dst, n, i18n("Temporada %d"), s);
 }
 static float larguraTemporada(int c) {
   char rot[32]; rotuloTemporada(c, rot, sizeof rot);
@@ -1947,7 +1948,7 @@ static void desenhaEpisodio(GfxRect r, int c, float f, float a, Uint32 agora) {
   // nao se sustenta: o card so aparece dentro da aba da temporada escolhida,
   // que esta desenhada logo acima dele.
   { char cab[24];
-    snprintf(cab, sizeof cab, "EPISÓDIO %d", epNum);
+    snprintf(cab, sizeof cab, i18n("EPISÓDIO %d"), epNum);
     TxtLinha l = txt_linha(TXT_CAPTION2, cab, 255, 255, 255, 255);
     float w = l.w + NV_DETP_EP_SELO_PADX * 2;
     GfxRect s = { tx, r.y + NV_DETP_EP_SELO_Y, w, NV_DETP_EP_SELO_H };
@@ -1961,7 +1962,7 @@ static void desenhaEpisodio(GfxRect r, int c, float f, float a, Uint32 agora) {
   // do numero, e nao o titulo de outra serie.
   { char reserva[32];
     const char *nome = epNome;
-    if (!nome) { snprintf(reserva, sizeof reserva, "Episódio %d", epNum);
+    if (!nome) { snprintf(reserva, sizeof reserva, i18n("Episódio %d"), epNum);
                  nome = reserva; }
     TxtLinha l = txt_linha_corta(TXT_PLR_CORPO, nome, 255, 255, 255, 255,
                                  NV_DETP_EP_TEXTO_W);
@@ -2685,7 +2686,7 @@ static void desenhaComentarios(float x, float y, float a) {
       int cur  = daSerie ? extras_comentario_curtidas(i)
                          : extras_comentario_ep_curtidas(i);
       if (nota > 0)
-        snprintf(rodape, sizeof rodape, "%d/10   %d curtidas", nota, cur);
+        snprintf(rodape, sizeof rodape, i18n("%d/10   %d curtidas"), nota, cur);
       else
         snprintf(rodape, sizeof rodape, "%d curtidas", cur);
       { TxtLinha lr = txt_linha(TXT_CAPTION2, rodape, 150, 154, 163, 255);

@@ -1,4 +1,5 @@
 #include "vertudo.h"
+#include "idioma.h"
 #include "badges.h"
 #include "descoberta.h"
 #include "catalogo.h"
@@ -338,7 +339,7 @@ static void themeHeader(float a,float x0) {
   char caption[180];int n=nItens();
   if(desc_vertudo_erro())snprintf(caption,sizeof caption,"Não foi possível carregar. OK para tentar novamente.");
   else if(!n)snprintf(caption,sizeof caption,"%s",desc_vertudo_carregando()?"Carregando títulos…":"Nenhum título nesta lista.");
-  else snprintf(caption,sizeof caption,"%d títulos%s  ·  %s",n,desc_vertudo_fim()?"":" carregados",legendaGrupo());
+  else snprintf(caption,sizeof caption,i18n("%d títulos%s  ·  %s"),n,desc_vertudo_fim()?"":i18n(" carregados"),legendaGrupo());
   TxtLinha sub=txt_linha_corta(TXT_DET_META2,caption,196,202,213,255,960);txt_desenhar_alpha(sub,x0,192,a);
   if(collection&&collection->nSources>1) {
     int first=tabCursor>3?tabCursor-3:0;
@@ -358,7 +359,7 @@ static void themeHeader(float a,float x0) {
       if(selecionada&&!f)
         gfx_cor((GfxRect){pill.x+18,pill.y+pill.h-4,pill.w-36,3},.5f,
                 .84f+r*.16f,.84f+g*.16f,.84f+b*.16f,a);
-      char label[180];snprintf(label,sizeof label,"%s · %s",s->title,!strcmp(s->type,"series")?"Séries":"Filmes");
+      char label[180];snprintf(label,sizeof label,"%s · %s",s->title,i18n(!strcmp(s->type,"series")?"Séries":"Filmes"));
       TxtLinha t=txt_linha_corta(TXT_HERO_META,label,f?22:238,f?24:240,f?28:245,255,276);
       txt_desenhar_alpha(t,pill.x+(pill.w-t.w)*.5f,pill.y+(pill.h-t.h)*.5f,a);
     }gfx_sem_recorte();

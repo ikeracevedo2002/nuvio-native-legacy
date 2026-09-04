@@ -1,4 +1,5 @@
 #include "posplay.h"
+#include "idioma.h"
 #include "catalogo.h"
 #include "extras.h"
 #include "gfx.h"
@@ -254,7 +255,7 @@ void posplay_desenhar(Uint32 agora, float baseY) {
     cy += sobe;
 
     { TxtLinha t;
-      if (resta > 0) snprintf(cab, sizeof cab, "A seguir em %d s", resta);
+      if (resta > 0) snprintf(cab, sizeof cab, i18n("A seguir em %d s"), resta);
       else           snprintf(cab, sizeof cab, "A seguir");
       t = txt_linha(TXT_DET_META2, cab, 214, 216, 222, 255);
       txt_desenhar_alpha(t, x, cy - t.h - 12.0f, a * 0.92f); }

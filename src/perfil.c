@@ -5,6 +5,7 @@
 // mais vistos ganham paineis largos com arte. O acento violeta pertence aos
 // dados, enquanto o foco continua branco como no restante do native legacy.
 #include "perfil.h"
+#include "idioma.h"
 #include "anim.h"
 #include "gfx.h"
 #include "layout.h"
@@ -336,8 +337,8 @@ static void desenharResumo(float a) {
          184,112,220, identidadeX, periodoY, a);
   if (dados.minutos > 0) {
     tempo(t,sizeof(t),dados.minutos);
-    snprintf(b,sizeof(b),"%s assistidos",t);
-  } else snprintf(b,sizeof(b),"%d reproduções registradas",dados.plays);
+    snprintf(b,sizeof(b),i18n("%s assistidos"),t);
+  } else snprintf(b,sizeof(b),i18n("%d reproduções registradas"),dados.plays);
   corta(TXT_TITULO1,b,246,identidadeX,consumoY,identidadeW,a);
   if(dados.aviso[0])corta(TXT_MINI,dados.aviso,183,identidadeX,PF_RESUMO_Y+292,identidadeW,a);
 
@@ -351,7 +352,7 @@ static void desenharResumo(float a) {
   }
   if(dados.plays>0 && dados.minutos>0) {
     tempo(t,sizeof(t),(int)((double)dados.minutos/dados.plays+.5));
-    snprintf(b,sizeof(b),"%s por reprodução",t);
+    snprintf(b,sizeof(b),i18n("%s por reprodução"),t);
     corta(TXT_CAPTION,b,193,x,PF_RESUMO_Y+292,PF_W*.42f,a);
   }
   // As contagens representam eventos de reproducao, nao titulos unicos.
@@ -360,7 +361,7 @@ static void desenharResumo(float a) {
     float w=PF_W*.50f, filmes=w*(float)(dados.filmes/total);
     gfx_cor((GfxRect){PF_X,PF_RESUMO_Y+316-scroll,w,10},.4f,.23f,.60f,.82f,a);
     if(filmes>0)gfx_cor((GfxRect){PF_X,PF_RESUMO_Y+316-scroll,filmes,10},.4f,.65f,.30f,.83f,a);
-    snprintf(b,sizeof(b),"Filmes %.0f%%  ·  Episódios %.0f%%",100*dados.filmes/total,100*dados.episodios/total);
+    snprintf(b,sizeof(b),i18n("Filmes %.0f%%  ·  Episódios %.0f%%"),100*dados.filmes/total,100*dados.episodios/total);
     corta(TXT_CAPTION,b,201,PF_X,PF_RESUMO_Y+340,w,a);
   }
 }
@@ -393,7 +394,7 @@ static void desenharAtividade(float a) {
     if(secao==2 && i==dia)anel((GfxRect){c.x-3,c.y-3,c.w+6,c.h+6},.20f,a);
   }
   char b[96];
-  if(dados.nDias)snprintf(b,sizeof(b),"Dia %d: %u reproduções",dia+1,dados.atividade[dia]);
+  if(dados.nDias)snprintf(b,sizeof(b),i18n("Dia %d: %u reproduções"),dia+1,dados.atividade[dia]);
   else snprintf(b,sizeof(b),"Atividade diária indisponível");
   corta(TXT_CAPTION,b,226,PF_X+32,PF_ATIV_Y+450,painel.w-64,a);
   // Legenda separada do calendario: leitura numerica continua acessivel sem
@@ -408,20 +409,20 @@ static void desenharAtividade(float a) {
   snprintf(b,sizeof(b),"0 a %d por dia",max);
   corta(TXT_MINI,b,184,lx,PF_ATIV_Y+196,painel.w-480,a);
   if(dados.atividade[melhor]){
-    snprintf(b,sizeof(b),"Pico: %d reproduções no dia %d",max,melhor+1);
+    snprintf(b,sizeof(b),i18n("Pico: %d reproduções no dia %d"),max,melhor+1);
     corta(TXT_CAPTION,b,219,lx,PF_ATIV_Y+276,painel.w-480,a);
   }
   if(ultimo>=0) {
-    snprintf(b,sizeof(b),"Última atividade: dia %d",ultimo+1);
+    snprintf(b,sizeof(b),i18n("Última atividade: dia %d"),ultimo+1);
     corta(TXT_CAPTION,b,193,lx,PF_ATIV_Y+326,painel.w-480,a);
   }
   float rx=PF_X+PF_W*.63f;
   numero(b,sizeof(b),dados.streakAtual); textoC(TXT_TITULO1,b,190,111,224,rx,PF_ATIV_Y+76,a);
   corta(TXT_CALLOUT,dados.streakCompleto?"dias em sequência":"dias em sequência no mês",220,rx,PF_ATIV_Y+148,PF_W*.37f,a);
-  snprintf(b,sizeof(b),"%d de %d dias ativos no mês",dados.diasAtivosMes,dados.nDias);
+  snprintf(b,sizeof(b),i18n("%d de %d dias ativos no mês"),dados.diasAtivosMes,dados.nDias);
   corta(TXT_BODY,b,203,rx,PF_ATIV_Y+218,PF_W*.37f,a);
   if(dados.anoCompleto){
-    snprintf(b,sizeof(b),"%d dias ativos no ano",dados.diasAtivosAno);
+    snprintf(b,sizeof(b),i18n("%d dias ativos no ano"),dados.diasAtivosAno);
     corta(TXT_CAPTION,b,185,rx,PF_ATIV_Y+278,PF_W*.37f,a);
   } else corta(TXT_CAPTION,"Cobertura: período selecionado",185,rx,PF_ATIV_Y+278,PF_W*.37f,a);
 }
@@ -479,8 +480,8 @@ static void desenharDestaques(float a) {
     corta(TXT_CAPTION,dados.destaques[i].detalhe,216,r.x+204,docY-lift+66,r.w-222,a);
     if(dados.destaques[i].minutos>0) {
       tempo(meta,sizeof(meta),dados.destaques[i].minutos);
-      snprintf(linha,sizeof(linha),"%d reproduções  ·  %s",dados.destaques[i].plays,meta);
-    } else snprintf(linha,sizeof(linha),"%d reproduções",dados.destaques[i].plays);
+      snprintf(linha,sizeof(linha),i18n("%d reproduções  ·  %s"),dados.destaques[i].plays,meta);
+    } else snprintf(linha,sizeof(linha),i18n("%d reproduções"),dados.destaques[i].plays);
     corta(TXT_CAPTION,linha,194,r.x+204,docY-lift+91,r.w-222,a);
     if(secao==1 && item==i)anel((GfxRect){r.x-NV_ANEL_FOCO,r.y-NV_ANEL_FOCO,
                               r.w+NV_ANEL_FOCO*2,r.h+NV_ANEL_FOCO*2},.047f,a);
@@ -519,9 +520,9 @@ void perfil_desenhar(Uint32 agora) {
         txt_desenhar_alpha(txt_linha(TXT_CAPTION,n,243,239,249,255),b.x+24,b.y+16,a);
       }
       char b[128],dur[32];tempo(dur,sizeof dur,dados.minutos);
-      snprintf(b,sizeof b,"%s · %d reproduções",dur,dados.plays);
+      snprintf(b,sizeof b,i18n("%s · %d reproduções"),dur,dados.plays);
       txt_desenhar_alpha(txt_linha_corta(TXT_BODY,b,244,240,248,255,688),x+44,755,a);
-      snprintf(b,sizeof b,"%d dias ativos · %d dias seguidos no mês",dados.diasAtivosMes,dados.streakAtual);
+      snprintf(b,sizeof b,i18n("%d dias ativos · %d dias seguidos no mês"),dados.diasAtivosMes,dados.streakAtual);
       txt_desenhar_alpha(txt_linha_corta(TXT_CAPTION,b,193,181,210,255,688),x+44,801,a);
       if(dados.parcial)txt_desenhar_alpha(txt_linha(TXT_MINI,"Histórico parcial · detalhes no perfil",180,170,192,255),x+44,840,a);
     }
@@ -539,7 +540,7 @@ void perfil_desenhar(Uint32 agora) {
   char avisoBuf[320];
   const char *aviso=NULL;
   if(erro[0]){
-    if(estado==PF_STALE)snprintf(avisoBuf,sizeof avisoBuf,"Atualização indisponível · mostrando o último resumo recebido. %s",erro);
+    if(estado==PF_STALE)snprintf(avisoBuf,sizeof avisoBuf,i18n("Atualização indisponível · mostrando o último resumo recebido. %s"),erro);
     else snprintf(avisoBuf,sizeof avisoBuf,"%s",erro);
     aviso=avisoBuf;
   } else if(carregando)aviso="Atualizando histórico sem interromper o conteúdo anterior…";

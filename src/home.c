@@ -2,6 +2,7 @@
 // hero no topo, rail fixa à esquerda e fileiras horizontais de posters. A
 // infraestrutura nativa cuida de cache assíncrono, foco e transições.
 #include "home.h"
+#include "idioma.h"
 #include "catordem.h"
 #include "continuar.h"
 #include "vertudo.h"
@@ -676,7 +677,7 @@ static void sincronizarFileiras(void) {
         Fileira v={0};v.n=col_grupo(ids[s]+1,v.folders,MAX_CARDS);
         if(!v.n)continue;
         v.tipo=FILEIRA_CATALOGOS;
-        snprintf(v.chave,sizeof v.chave,"collection_%s",ids[s]+1);
+        col_chave_grupo(ids[s]+1,v.chave,sizeof v.chave);
         snprintf(v.titulo,sizeof v.titulo,"%s",names[s]);fileiras[destino++]=v;
       } else for(int k=0;k<total;k++) {
         if(strcmp(orig[k].catId,ids[s])&&strcmp(orig[k].chave,ids[s]))continue;
@@ -705,7 +706,7 @@ static void sincronizarFileiras(void) {
       int grupoVisto=0;
       if(!folder||!folder->group[0])continue;
       for(int j=0;j<destino;j++) {
-        char chave[192];snprintf(chave,sizeof chave,"collection_%s",folder->group);
+        char chave[192];col_chave_grupo(folder->group,chave,sizeof chave);
         if(!strcmp(fileiras[j].chave,chave)){grupoVisto=1;break;}
       }
       if(grupoVisto)continue;
@@ -713,7 +714,7 @@ static void sincronizarFileiras(void) {
         v.n=col_grupo(folder->group,v.folders,MAX_CARDS);
         if(!v.n)continue;
         v.tipo=FILEIRA_CATALOGOS;
-        snprintf(v.chave,sizeof v.chave,"collection_%s",folder->group);
+        col_chave_grupo(folder->group,v.chave,sizeof v.chave);
         snprintf(v.titulo,sizeof v.titulo,"%s",folder->group);
         fileiras[destino++]=v;
       }
@@ -1064,7 +1065,7 @@ static void desenhaHero(Uint32 agora, float saida) {
         txt_desenhar_alpha(txt_linha(TXT_HERO_META,section,190,193,200,255),x,122,a);
         txt_bloco(TXT_TITULO1,folder->title,244,243,247,x,183,860,72,a,2);
         char caption[160];
-        snprintf(caption,sizeof caption,"%s  ·  %d %s",director?"Filmografia":"Seleção de cinema e séries",folder->nSources,folder->nSources==1?"lista":"listas");
+        snprintf(caption,sizeof caption,"%s  ·  %d %s",i18n(director?"Filmografia":"Seleção de cinema e séries"),folder->nSources,i18n(folder->nSources==1?"lista":"listas"));
         txt_desenhar_alpha(txt_linha_corta(TXT_HERO_META,caption,190,193,200,255,860),x,358,a);
         txt_desenhar_alpha(txt_linha(TXT_HERO_META,"OK para explorar",224,225,230,255),x,406,a);
         return;
@@ -1112,7 +1113,7 @@ static void desenhaHero(Uint32 agora, float saida) {
         }
         char caption[96];
         snprintf(caption, sizeof caption, "%d %s · OK para explorar",
-                 folder->nSources, folder->nSources == 1 ? "lista" : "listas");
+                 folder->nSources, i18n(folder->nSources == 1 ? "lista" : "listas"));
         txt_desenhar_alpha(txt_linha_corta(TXT_HERO_SIN, caption,
                                            205, 210, 221, 255, 780),
                            x, NV_COLLECTION_HERO_CAPTION_Y, a);
@@ -1137,7 +1138,7 @@ static void desenhaHero(Uint32 agora, float saida) {
         txt_desenhar_alpha(name,x,NV_COLLECTION_HERO_LOGO_Y,a);
         fimTitulo=NV_COLLECTION_HERO_LOGO_Y+name.h;
       }
-      char caption[96];snprintf(caption,sizeof caption,"%d %s · OK para explorar",folder->nSources,folder->nSources==1?"lista":"listas");
+      char caption[96];snprintf(caption,sizeof caption,i18n("%d %s · OK para explorar"),folder->nSources,i18n(folder->nSources==1?"lista":"listas"));
       float yCap=NV_COLLECTION_HERO_CAPTION_Y;
       if(ehDiretor) {
         // Ficha do TMDB abaixo do nome: quem e, quando e onde nasceu, tres
@@ -1259,7 +1260,7 @@ static void desenhaHero(Uint32 agora, float saida) {
   // no outro caso ele vai para o fim da linha de meta.
   char destaque[64];
   destaque[0] = 0;
-  if (contHero) snprintf(destaque, sizeof destaque, "%d MINUTOS RESTANTES",
+  if (contHero) snprintf(destaque, sizeof destaque, i18n("%d MINUTOS RESTANTES"),
                          ci->restanteMin);
   const char *selo = (ci && ci->classificacao[0] && !contHero) ? ci->classificacao : NULL;
   char nota[8];

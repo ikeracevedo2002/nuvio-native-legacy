@@ -1,4 +1,5 @@
 #include "descoberta.h"
+#include "idioma.h"
 #include "catordem.h"
 #include "marco.h"
 #include <SDL2/SDL.h>
@@ -31,8 +32,8 @@ void desc_data_extenso(const char *iso, char *dst, size_t tam) {
     int mes = (iso[5] - '0') * 10 + (iso[6] - '0');
     int dia = (iso[8] - '0') * 10 + (iso[9] - '0');
     if (mes >= 1 && mes <= 12) {
-      snprintf(dst, tam, "%d de %s de %c%c%c%c",
-               dia, MES[mes - 1], iso[0], iso[1], iso[2], iso[3]);
+      snprintf(dst, tam, i18n("%d de %s de %c%c%c%c"),
+               dia, i18n(MES[mes - 1]), iso[0], iso[1], iso[2], iso[3]);
       return;
     }
     snprintf(dst, tam, "%c%c%c%c", iso[0], iso[1], iso[2], iso[3]);

@@ -12,6 +12,7 @@
 // (js/ui/screens/settings/settingsScreen.js), inclusive os rotulos em portugues
 // lidos da tela rodando.
 #include "ajustes.h"
+#include "idioma.h"
 #include "linguas.h"
 #include "addons.h"
 #include "gfx.h"
@@ -706,7 +707,7 @@ static const char *textoLeitura(int op) {
   if (op == AJ_ADDONS) {
     int i, lig = 0, n = addons_n();
     for (i = 0; i < n; i++) if (addons_ativo(i)) lig++;
-    snprintf(buf, sizeof buf, "%d de %d", lig, n);
+    snprintf(buf, sizeof buf, i18n("%d de %d"), lig, n);
     return buf;
   }
   if (op == AJ_SAIR) return "OK";
@@ -719,7 +720,7 @@ static const char *textoLeitura(int op) {
   }
   int itens = 0, pend = 0; long bytes = 0;
   tex_estatisticas(&itens, &pend, &bytes);
-  snprintf(buf, sizeof buf, "%.1f MB em %d imagens", bytes / 1048576.0, itens);
+  snprintf(buf, sizeof buf, i18n("%.1f MB em %d imagens"), bytes / 1048576.0, itens);
   return buf;
 }
 
@@ -1068,7 +1069,7 @@ void ajustes_desenhar(Uint32 agora) {
 
   int sec = secaoAtual();
   char pos[80];
-  snprintf(pos, sizeof pos, "%s  ·  %d de %d", SECOES[sec].titulo,
+  snprintf(pos, sizeof pos, i18n("%s  ·  %d de %d"), i18n(SECOES[sec].titulo),
            focoOp - SECOES[sec].ini + 1, SECOES[sec].n);
   TxtLinha contexto = txt_linha(TXT_CAPTION, pos, 178, 180, 186, 255);
   txt_desenhar(contexto, AJ_LISTA_X, NV_MARGEM_Y + tit.h + 10.0f);

@@ -1,4 +1,5 @@
 #include "perfilsel.h"
+#include "idioma.h"
 #include "perfis.h"
 #include "sync.h"
 #include "gfx.h"
@@ -203,7 +204,7 @@ static void desenhaPin(void) {
 
   { char t[128];
     TxtLinha l;
-    snprintf(t, sizeof t, "PIN de %s", p ? p->nome : "perfil");
+    snprintf(t, sizeof t, i18n("PIN de %s"), p ? p->nome : i18n("perfil"));
     l = txt_linha(TXT_TITULO3, t, 255, 255, 255, 255);
     txt_desenhar(l, (NV_TELA_W - l.w) * 0.5f, 350.0f); }
 

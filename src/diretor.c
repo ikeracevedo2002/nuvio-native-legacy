@@ -1,4 +1,5 @@
 #include "diretor.h"
+#include "idioma.h"
 #include "descoberta.h"
 #include "rede.h"
 #include "js.h"
@@ -161,7 +162,7 @@ static void *buscar(void *arg) {
     if (nasc[0]) desc_data_extenso(nasc, data, sizeof data);
     snprintf(f->meta, sizeof f->meta, "Diretor");
     z = strlen(f->meta);
-    if (data[0]) z += snprintf(f->meta + z, sizeof f->meta - z, " \xc2\xb7 Nascido em %s", data);
+    if (data[0]) z += snprintf(f->meta + z, sizeof f->meta - z, i18n(" · Nascido em %s"), data);
     if (lugar[0] && z < sizeof f->meta) snprintf(f->meta + z, sizeof f->meta - z, " \xc2\xb7 %s", lugar);
   }
   f->estado = 2;

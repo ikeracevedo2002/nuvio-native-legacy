@@ -1,4 +1,5 @@
 #include "episodios.h"
+#include "idioma.h"
 #include "catalogo.h"
 #include "descoberta.h"
 #include "extras.h"
@@ -125,7 +126,7 @@ void episodios_desenhar(void) {
     float tx = x+40+(i-primeira)*212;
     int sel = i == temporada;
     gfx_cor((GfxRect){tx,126,196,52},.5f,sel?.94f:.14f,sel?.94f:.14f,sel?.95f:.15f,anim);
-    char s[48]; snprintf(s,sizeof s,"Temporada %d",numTemporada(i));
+    char s[48]; snprintf(s,sizeof s,i18n("Temporada %d"),numTemporada(i));
     int b=sel?24:210;
     TxtLinha l=txt_linha(TXT_PG_ROTULO,s,b,b,b,255);
     txt_desenhar_alpha(l,tx+(196-l.w)*.5f,138,anim);
@@ -158,7 +159,7 @@ void episodios_desenhar(void) {
     int visto=extras_ep_visto(ep->temporada,ep->episodio);
     char estado[96];
     if(atual) snprintf(estado,sizeof estado,"Reproduzindo agora");
-    else if(visto) snprintf(estado,sizeof estado,"✓ Assistido%s%s",ep->duracao[0]?" · ":"",ep->duracao);
+    else if(visto) snprintf(estado,sizeof estado,i18n("✓ Assistido%s%s"),ep->duracao[0]?" · ":"",ep->duracao);
     else snprintf(estado,sizeof estado,"%s%s%s",ep->data,ep->data[0]&&ep->duracao[0]?" · ":"",ep->duracao);
     txt_desenhar_alpha(txt_linha_corta(TXT_PG_FIM,estado,atual?236:180,atual?237:182,atual?240:188,255,w),tx,y+48,anim);
     txt_bloco(TXT_PG_FIM,ep->sinopse,186,188,194,tx,y+78,w,25,anim,3);
@@ -168,7 +169,7 @@ void episodios_desenhar(void) {
     196,198,204,x+56,EP_TOP+40,EP_W-112,28,anim,4);
   gfx_sem_recorte();
   if(n) {
-    char contador[48];snprintf(contador,sizeof contador,"%d de %d episódios",foco+1,n);
+    char contador[48];snprintf(contador,sizeof contador,i18n("%d de %d episódios"),foco+1,n);
     txt_desenhar_alpha(txt_linha(TXT_MINI,contador,166,168,174,255),x+40,NV_TELA_H-26,anim);
   }
 }

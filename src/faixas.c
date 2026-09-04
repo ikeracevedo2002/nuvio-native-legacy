@@ -1,4 +1,5 @@
 #include "faixas.h"
+#include "idioma.h"
 #include "player.h"
 #include "video.h"
 #include "addons.h"
@@ -127,7 +128,7 @@ static void valorEstilo(int linha, char *dst, size_t tam) {
     case 4: snprintf(dst, tam, "%s", EST_FUNDO[e->fundo > 4 ? 4 : e->fundo]); break;
     // O uMS aceita -3..4; a folha mostra 1..8 porque "posicao -3" nao diz nada
     // a quem esta olhando a tela.
-    case 5: snprintf(dst, tam, "%d de 8", e->posicao + 1); break;
+    case 5: snprintf(dst, tam, i18n("%d de 8"), e->posicao + 1); break;
     case 6: snprintf(dst, tam, "%s", EST_BORDA[e->borda > 2 ? 2 : e->borda]); break;
     case 7: {
       int a = e->atrasoMs;
@@ -266,7 +267,7 @@ static void coluna_desenhar(int col, float x, float larg, float y0, float a) {
   }
   if(!n) txt_bloco(TXT_PG_FIM,"Nenhuma faixa disponível nesta fonte.",178,180,186,x,y0+68,larg,28,a,2);
   if(n>visiveis) {
-    char num[48]; snprintf(num,sizeof num,"%d de %d",foco[col]+1,n);
+    char num[48]; snprintf(num,sizeof num,i18n("%d de %d"),foco[col]+1,n);
     txt_desenhar_alpha(txt_linha(TXT_MINI,num,174,176,182,255),x,y0+64+visiveis*FX_LINHA,a);
   }
 }

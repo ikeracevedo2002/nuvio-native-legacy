@@ -1,6 +1,7 @@
 #include "addons.h"
 #include "linguas.h"
 #include "streams.h"
+#include "debrid.h"
 #include "rede.h"
 #include "js.h"
 #include "marco.h"
@@ -142,7 +143,7 @@ int addons_exportar(AddonRemoto *saida, int max) {
   for (i = 0; i < nAddon && k < max; i++) {
     snprintf(saida[k].nome, sizeof saida[k].nome, "%s", addon[i].nome);
     snprintf(saida[k].url, sizeof saida[k].url, "%s", addon[i].base);
-    saida[k].ativo = 1;
+    saida[k].ativo = addon[i].ativo;
     k++;
   }
   return k;
@@ -635,6 +636,9 @@ void addons_buscar(const char *imdb, const char *tipo) {
   else
     snprintf(alvoId, sizeof alvoId, "%s", imdb);
   snprintf(alvoTipo, sizeof alvoTipo, "%s", tipo && *tipo ? tipo : "movie");
+  { int t = 0, e = 0; const char *dp = strchr(alvoId, ':');
+    if (dp) sscanf(dp + 1, "%d:%d", &t, &e);
+    debrid_definir_episodio(t, e); }
   estado = ADD_BUSCANDO;
   fioVivo = 1;
   if (pthread_create(&fio, NULL, buscar, NULL) != 0) { fioVivo = 0; estado = ADD_PARADO; }
