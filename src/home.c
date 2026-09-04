@@ -2,6 +2,7 @@
 // hero no topo, rail fixa à esquerda e fileiras horizontais de posters. A
 // infraestrutura nativa cuida de cache assíncrono, foco e transições.
 #include "home.h"
+#include "catordem.h"
 #include "continuar.h"
 #include "vertudo.h"
 #include "ctxmenu.h"
@@ -647,6 +648,14 @@ static void sincronizarFileiras(void) {
   }
   if (col_n()) {
     Fileira orig[MAX_FIL];int total=destino;memcpy(orig,fileiras,sizeof orig);destino=0;
+    // A ordem que a pessoa gravou na conta GANHA da curadoria fixa abaixo. Sem
+    // isto o recurso nao existiria em aparelho com colecoes: a descoberta ja
+    // teria posto as fileiras na ordem da conta e esta tabela as reordenaria
+    // de novo, e a pessoa veria a TV ignorar o que ela arrumou no app web.
+    // Os grupos de colecao continuam entrando — no FIM, que e onde a regra de
+    // uniao poe o que e local e o remoto nao conhece.
+    int ordemDaConta = catordem_tem_ordem();
+    if (ordemDaConta) { memcpy(fileiras,orig,sizeof(Fileira)*(size_t)total); destino=total; }
     const char *ids[]={"continue_watching","social_activity","now_playing_movies","@Streaming",
       "trending_movies","trending_series","@Themes","ai_movies_for_you",
       "ai_series_for_you","snoak_top100_movies","snoak_top100_series",
@@ -659,6 +668,10 @@ static void sincronizarFileiras(void) {
     // O web mantem chaves novas no fim e a home nativa precisa fazer o mesmo:
     // catalogos e grupos que nao estavam nesta tabela continuam acessiveis.
     for(size_t s=0;s<sizeof ids/sizeof ids[0] && destino<MAX_FIL;s++) {
+      // Com ordem da conta, so os grupos de colecao ('@') entram por aqui: as
+      // entradas de catalogo desta tabela promoveriam fileiras para cima da
+      // ordem escolhida.
+      if(ordemDaConta && ids[s][0]!='@') continue;
       if(ids[s][0]=='@') {
         Fileira v={0};v.n=col_grupo(ids[s]+1,v.folders,MAX_CARDS);
         if(!v.n)continue;

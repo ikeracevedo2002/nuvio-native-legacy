@@ -1,4 +1,5 @@
 #include "descoberta.h"
+#include "catordem.h"
 #include "marco.h"
 #include <SDL2/SDL.h>
 #include "catalogo.h"
@@ -689,6 +690,10 @@ static void lerPrefs(void) {
 // desliga pela ordenacao grava a chave curta.
 static int desligada(const Decl *d) {
   int i;
+  // A conta manda junto com o arquivo local, nao no lugar dele: quem desligou
+  // uma fileira no app web ve a TV concordar, e quem desligou so na TV (que
+  // nao tem tela para isso hoje, mas tem o arquivo) continua valendo.
+  if (catordem_oculta(d->chave, d->desativar)) return 1;
   for (i = 0; i < nPrefOff; i++)
     if (!strcmp(prefOff[i], d->chave) || !strcmp(prefOff[i], d->desativar)) return 1;
   return 0;
@@ -959,6 +964,22 @@ static void *montar(void *u) {
             ordem[nOrdem++] = j; vistos[j] = 1; break;
           }
       for (j = 0; j < nDecl; j++) if (!vistos[j]) ordem[nOrdem++] = j;
+
+      // A ordem da CONTA por cima da ordem local, e a regra e UNIAO, nao
+      // substituicao: catordem_unir puxa para a frente o que o remoto conhece,
+      // na ordem dele, e deixa todo o resto no fim como ja estava. Aplicar a
+      // ordem remota crua removeria os catalogos que passaram a existir depois
+      // de ela ter sido gravada — era o `{"localItems":54,"remoteItems":43}`
+      // de todo boot na OLED65C9, com a home reescrita e nunca convergindo.
+      if (catordem_tem_ordem() && nOrdem > 0) {
+        const char *chaves[DECL_MAX];
+        int saida[DECL_MAX], antes[DECL_MAX], q;
+        for (q = 0; q < nOrdem; q++) chaves[q] = decls[ordem[q]].chave;
+        memcpy(antes, ordem, sizeof(int) * (size_t)nOrdem);
+        q = catordem_unir(chaves, nOrdem, saida, DECL_MAX);
+        for (j = 0; j < q; j++) ordem[j] = antes[saida[j]];
+        nOrdem = q;
+      }
 
       int marcouPrimeira = 0;
       // ETAPA 1 — escolher e ORDENAR as fileiras que serao lidas. Os filtros

@@ -179,6 +179,12 @@ de um elemento — linhas 226-233). Dentro dele, dois formatos:
    os ocultos, entre `disabled_catalog_keys`, `hidden_catalog_keys`,
    `catalog_disabled_keys`, `home_catalog_disabled`, `disabled`.
 
+   CORREÇÃO a este anexo, achada ao implementar: "o primeiro que existir" é
+   literal. `firstStringArrayFromRaw` (linha 182) devolve no `hasOwnProperty`,
+   então um nome PRESENTE PORÉM VAZIO (`[]`) encerra a busca e não desliza para
+   o nome seguinte. Importa porque o `js_array` deste repo devolve `NULL` para
+   `[]`, que é indistinguível de ausente sem uma conferência extra.
+
 Mais dois booleanos: `hide_unreleased_content` e `hide_catalog_underline`. Ambos
 só valem quando a chave EXISTE no blob — ausente não é `false`, é "mantém o
 local".

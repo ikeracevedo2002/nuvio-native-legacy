@@ -7,6 +7,7 @@
 #include "trakt.h"
 #include "catalogo.h"
 #include "ajustes.h"
+#include "catordem.h"
 #include "descoberta.h"
 #include "extras.h"
 #include "js.h"
@@ -64,6 +65,12 @@ static int cVistos, cBiblio, cSalvos, cColecoes, temAjustesPerfil, temCatHome;
 static char *ajustesBlob;
 static int  temAjustesBlob;
 static int  aplicarAjustes = 1;
+
+// A ordem das fileiras da home, crua, tambem esperando o fio principal. Nao e
+// contada como as outras so-leitura: ela e a home da pessoa, e ate agora a
+// resposta chegava, virava um numero no resumo e era jogada fora.
+static char *catHomeBlob;
+static int   temCatHomeBlob;
 
 // ---------------------------------------------------------------- utilitarios
 
@@ -404,6 +411,27 @@ static int puxarAjustesPerfil(const char *corpo) {
   return ok;
 }
 
+// A resposta inteira e guardada, nao interpretada aqui: quem le e catordem.c,
+// no fio principal. Interpretar neste fio e mexer na ordem das fileiras no meio
+// de um quadro que ja esta desenhando a home — a mesma razao que faz os addons
+// esperarem sync_passo.
+static int puxarCatHome(const char *corpo) {
+  char *r;
+  int st = 0;
+  if (jaAusente("sync_pull_home_catalog_settings")) return 0;
+  r = sessao_rpc("sync_pull_home_catalog_settings", corpo, &st);
+  if (!ok2xx(r, st)) {
+    if (r && nuvem_erro_ausente(r) && nAusentes < SY_AUSENTES)
+      ausentes[nAusentes++] = "sync_pull_home_catalog_settings";
+    free(r);
+    return 0;
+  }
+  free(catHomeBlob);
+  catHomeBlob = r;          // o fio principal libera depois de ler
+  temCatHomeBlob = 1;
+  return 1;
+}
+
 static void puxarSoLeitura(void) {
   char corpo[160];
   int perfil = perfis_ativo();
@@ -428,7 +456,7 @@ static void puxarSoLeitura(void) {
 
   snprintf(corpo, sizeof corpo,
            "{\"p_profile_id\":%d,\"p_platform\":\"home_catalog_shared\"}", perfil);
-  temCatHome = contarRpc("sync_pull_home_catalog_settings", corpo) > 0;
+  temCatHome = puxarCatHome(corpo);
 }
 
 // ---------------------------------------------------------------- ciclo
@@ -493,6 +521,23 @@ void sync_passo(unsigned agoraMs) {
   if (temTraktRem)  { trakt_definir(traktTok, nuvem_trakt_cliente()); temTraktRem = 0; remontar = 1; }
   if (temTmdb)      { desc_tmdb_definir(tmdbKey);   temTmdb = 0; }
   if (temMdb)       { extras_definir_chave(mdbKey); temMdb = 0; }
+  // A ordem da home entra no MESMO remontar, e so quando MUDOU de verdade.
+  // Uma remontagem por ciclo de sync custaria a home inteira a cada 5 minutos,
+  // e o baseline de jank desta TV nao tem essa folga; duas remontagens no mesmo
+  // quadro (addons e ordem) custariam o dobro por nada.
+  if (temCatHomeBlob && catHomeBlob) {
+    if (catordem_ler(catHomeBlob)) {
+      if (catordem_tem_ocultar_nao_lancados())
+        ajustes_definir_ocultar_nao_lancados(catordem_ocultar_nao_lancados());
+      // `hide_catalog_underline` e lido e NAO aplicado: nao ha sublinhado de
+      // catalogo desenhado neste app. Ler ja evita confundir "a conta nao
+      // mandou" com "a conta mandou false" quando a fileira ganhar rotulo.
+      remontar = 1;
+    }
+    free(catHomeBlob);
+    catHomeBlob = NULL;
+    temCatHomeBlob = 0;
+  }
   if (remontar) desc_repetir(); }
   if (temAjustesBlob && ajustesBlob) {
     ajustes_aplicar_blob(ajustesBlob);
@@ -555,6 +600,10 @@ void sync_reaplicar_ajustes(void) { aplicarAjustes = 1; }
 void sync_esquecer_usuario(void) {
   // A ordem importa pouco, mas o CONJUNTO nao: cada linha aqui corresponde a
   // uma coisa que sobrevivia ao logout.
+  catordem_esquecer();
+  free(catHomeBlob);
+  catHomeBlob = NULL;
+  temCatHomeBlob = 0;
   addons_esquecer();
   trakt_esquecer();
   perfis_esquecer();

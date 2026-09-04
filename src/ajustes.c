@@ -375,6 +375,12 @@ int ajustes_rotulos_poster(void)      { return lig(AJ_ROTULOS); }
 int ajustes_nome_addon(void)          { return lig(AJ_NOME_ADDON); }
 int ajustes_sufixo_tipo(void)         { return lig(AJ_SUFIXO_TIPO); }
 int ajustes_ocultar_nao_lancados(void){ return lig(AJ_OCULTAR_NLANC); }
+// O blob da ordem de catalogos (plataforma home_catalog_shared) traz esta mesma
+// opcao, separada do blob de ajustes do perfil. Setter proprio porque so vale
+// quando a chave EXISTE la: ausente nao e `false`, e "mantem o que esta na TV".
+void ajustes_definir_ocultar_nao_lancados(int ligado) {
+  valor[AJ_OCULTAR_NLANC] = ligado ? 0 : 1;
+}
 int ajustes_data_completa(void)       { return lig(AJ_DET_DATA_CHEIA); }
 int ajustes_notas_home(void)          { return valor[AJ_NOTAS_HOME] == 0; }
 int ajustes_local_descobrir(void)     { return valor[AJ_DESCOBRIR]; }

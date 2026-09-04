@@ -55,6 +55,7 @@ int   ajustes_rotulos_poster(void);     // posterLabelsEnabled
 int   ajustes_nome_addon(void);         // catalogAddonNameEnabled
 int   ajustes_sufixo_tipo(void);        // catalogTypeSuffixEnabled
 int   ajustes_ocultar_nao_lancados(void);   // hideUnreleasedContent
+void  ajustes_definir_ocultar_nao_lancados(int ligado);
 int   ajustes_data_completa(void);      // showFullReleaseDate
 // homeImdbRatingsVisibility: 0 SHOW_ALL, 1 HIDE_ALL
 int   ajustes_notas_home(void);
