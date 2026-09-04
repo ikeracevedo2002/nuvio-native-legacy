@@ -2,11 +2,39 @@
 #include "layout.h"
 #include "text.h"
 #include "anim.h"
+#include "proximo.h"
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 void continuar_desenhar(const CatItem *ci, GfxRect r) {
+  CatItem copia;
+  ProxSugestao prox;
+  int idx;
   if (!ci) return;
+  // Episodio semeado ja terminado: o card passa a anunciar o PROXIMO, quando a
+  // regra portada do web deixa (ver proximo.h). A decisao mora aqui, e nao na
+  // home, porque so muda o que este card ESCREVE — nenhuma fileira nova, nenhum
+  // poster a mais para decodificar.
+  //
+  // O teto de PROX_MAX_BUSCAS nao precisa ser aplicado aqui: a fileira ja nasce
+  // com 8 itens (trakt_continuar, em descoberta.c), bem abaixo dele.
+  idx = cat_indice_por_imdb(ci->imdb);
+  if (idx >= 0 &&
+      prox_para_item(ci, cat_episodio(idx, 0), cat_n_episodios(idx),
+                     (long long)time(NULL) * 1000LL, &prox)) {
+    copia = *ci;
+    copia.temporada = prox.temporada;
+    copia.episodio  = prox.episodio;
+    snprintf(copia.nomeEpisodio, sizeof copia.nomeEpisodio, "%s", prox.nome);
+    // O selo de "restam N min" e da duracao do episodio ANTERIOR e a barra e do
+    // progresso dele; nenhum dos dois descreve um episodio que nao comecou.
+    copia.restanteMin = 0;
+    copia.progresso = 0;
+    ci = &copia;
+  }
+
+  {
   float esc = r.w / NV_DESTAQUE_W;
   float pad = NV_CW_PAD * esc, largura = r.w - pad * 2;
   gfx_rect(r, 0, GFX_VEU, 0, 0, 0, NV_RAIO_CARD, 0, 0, 0, .85f);
@@ -51,5 +79,6 @@ void continuar_desenhar(const CatItem *ci, GfxRect r) {
     if (preenchido < h) preenchido = h;
     GfxRect barra = {r.x + pad, r.y + r.h - NV_CW_BAR_BOTTOM*esc - h, preenchido, h};
     gfx_cor(barra, .5f, .96f, .965f, .98f, .98f);
+  }
   }
 }

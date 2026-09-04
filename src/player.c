@@ -41,6 +41,7 @@
 #include "streams.h"
 #include "legenda.h"
 #include "intro.h"
+#include "pausao.h"
 #include "home.h"
 #include <time.h>
 #include <stdio.h>
@@ -602,6 +603,7 @@ void player_encerrar(void) {
     }
   }
   if (comVideo) video_parar();
+  pausao_fechar();
   comVideo = 0; esperandoFonte = 0; aberto = 0; saindo = 0; pediuSair = 0;
   inicioImagem = 0;
   episodios_fechar();
@@ -646,6 +648,17 @@ void player_evento(const SDL_Event *e) {
       k == SDLK_DELETE) {
     saindo = 1; pediuSair = 1;
     return;
+  }
+
+  // PAINEL DE PAUSA: com ele de pe, a tecla e DELE. Vem antes de tudo o que
+  // sobra (inclusive da tecla de proporcao) porque e o que o web faz — la o
+  // ramo `if (this.pauseOverlayVisible)` engole o evento inteiro
+  // (playerScreen.js:22191). Um painel que cobre a informacao da tela e nao
+  // responde ao primeiro toque le como travamento.
+  if (pausao_visivel()) {
+    int r = pausao_evento(e);
+    if (r == PAUSAO_RETOMAR) { alternarTocando(); acordar(); return; }
+    if (r == PAUSAO_CONSUMIU) { acordar(); return; }
   }
 
   // CONTROLES ESCONDIDOS: qualquer direcao so acorda a interface. O OK direto
@@ -779,6 +792,29 @@ void player_atualizar(float dt, Uint32 agora) {
   if (visivel && tocando && !player_carregando() && !episodios_aberto() &&
       !stream_folha_aberta() && !faixas_aberta() && agora - ultimoInput > PLR_ESCONDE_MS) visivel = 0;
   if (epT > 0 && !strstr(linhaEp, " · ")) player_definir_episodio(epT, epE);
+
+  // PAINEL DE PAUSA. A condicao e a traducao de canShowPauseOverlay
+  // (playerScreen.js:7299): pausado, com imagem na tela, sem nenhuma folha
+  // aberta por cima. `!player_carregando()` cobre o `loadingVisible` do web e
+  // `!ofertaProximo()` cobre o cartao de proximo episodio (:8241) — os dois sao
+  // convites a uma acao, e um painel informativo nao pode competir com eles.
+  //
+  // `!posplay_visivel()` nao vem do web: la o pos-reproducao e outra tela. Aqui
+  // os dois sao faixa inferior, o pos-reproducao desenha DEPOIS (mais abaixo
+  // nesta funcao) e cobriria a ficha. Pausar no fim de um episodio e comum
+  // justamente porque a contagem esta correndo — sem esta linha o painel
+  // subiria invisivel, atras dela.
+  pausao_atualizar(dt, agora,
+                   !tocando && !saindo && !erroFonte && !player_carregando() &&
+                   !episodios_aberto() && !stream_folha_aberta() &&
+                   !faixas_aberta() && !ofertaProximo() && !posplay_visivel(),
+                   idx, linhaEp);
+  // Com o painel de pe os controles saem de cena. Aqui eles NAO somem sozinhos
+  // enquanto pausado (a regra logo acima), entao sem esta linha o painel subiria
+  // por cima da barra de botoes e as duas coisas disputariam a mesma metade da
+  // tela. Basta zerar o alvo: a mola cuida da transicao, e a primeira tecla
+  // derruba o painel e chama acordar(), que traz a barra de volta.
+  if (pausao_visivel()) visivel = 0;
 
   anim = anim_mola(anim, visivel ? 1.0f : 0.0f, dt,
                    visivel ? NV_MOLA_FOCO : NV_MOLA_DESFOCO);
@@ -1011,6 +1047,10 @@ void player_desenhar(Uint32 agora) {
   /* Permanecem quando os controles somem: sao conteudo, nao chrome do player. */
   desenharLegendaExterna();
   desenharAcoesEpisodio();
+  // ANTES do corte por `a`: o painel de pausa e o que substitui os controles,
+  // e desenha-lo depois do `return` de "tocando limpo" faria dele um painel que
+  // so aparece quando ja ha barra na tela — o oposto do que ele e.
+  pausao_desenhar(agora);
 
   float a = anim * entrada;
   if (a <= 0.005f) return;   // tocando limpo: nada por cima da imagem

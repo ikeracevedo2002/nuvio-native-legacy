@@ -30,6 +30,9 @@ void ajustes_encerrar(void);
 int ajustes_animacoes_reduzidas(void);
 int ajustes_dolby_vision(void);
 int ajustes_dolby_atmos(void);
+// pauseOverlayEnabled: o painel de ficha que sobe alguns segundos depois de
+// pausar o video. Ver pausao.h.
+int ajustes_pausa_overlay(void);
 int ajustes_idioma_ingles(void);
 // "Automática", "4K", "1080p" ou "720p" — o rotulo exibido, para quem seleciona
 // a fonte de video mostrar exatamente o que o usuario escolheu.

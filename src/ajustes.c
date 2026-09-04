@@ -53,6 +53,7 @@
 typedef enum {
   // Reproducao
   AJ_QUALIDADE, AJ_DV, AJ_ATMOS, AJ_LEG_LINGUA, AJ_AUD_LINGUA,
+  AJ_PAUSA_OVERLAY,
   // Layout da Home
   AJ_LANDSCAPE, AJ_HERO_CHEIO,
   // Conteudo da Home
@@ -143,6 +144,9 @@ static const Opcao OPCOES[AJ_N] = {
   // valida antes do arranque.
   ESC("Idioma da legenda",          V_LINGUA, 2),
   ESC("Idioma do áudio",            V_LINGUA, 2),
+  // `playback_pause_overlay` (settingsScreen.js:6320). Liga o painel que
+  // sobe cinco segundos depois de pausar; ver pausao.h.
+  ESC("Painel ao pausar",           V_LIGA, 2),   // pauseOverlayEnabled
 
   ESC("Pôsteres horizontais",       V_LIGA, 2),   // modernLandscapePostersEnabled
   ESC("Fundo em tela cheia",        V_LIGA, 2),   // modernHeroFullScreenBackdropEnabled
@@ -210,7 +214,7 @@ static const Opcao OPCOES[AJ_N] = {
 // estavam. Os nomes seguem os do app web onde existe correspondente.
 static const char *CHAVE[] = {
   "qualidade", "dolbyVision", "dolbyAtmos",
-  "legendaIdioma", "audioIdioma",
+  "legendaIdioma", "audioIdioma", "pauseOverlayEnabled",
   "modernLandscapePostersEnabled", "modernHeroFullScreenBackdropEnabled",
   "collapseSidebar", "modernSidebar", "modernSidebarBlur",
   "heroSectionEnabled", "-heroCatalogKeys",
@@ -248,7 +252,7 @@ typedef char conferi_uma_chave_por_opcao[
 // visual, nao um nivel de navegacao: cima/baixo atravessa os cabecalhos sem
 // parar neles, como no aparelho. Os titulos sao os do app web.
 static const struct { const char *titulo; int ini, n; } SECOES[] = {
-  { "Reprodução",                     AJ_QUALIDADE,           5 },
+  { "Reprodução",                     AJ_QUALIDADE,           6 },
   { "Layout da Home",                 AJ_LANDSCAPE,           2 },
   { "Conteúdo da Home",               AJ_RAIL,               12 },
   { "Continuar assistindo",           AJ_CW_LIGADO,           7 },
@@ -275,6 +279,7 @@ static void aplicarIdioma(int op);
 static int valor[AJ_N] = {
   0, 0, 0,          /* qualidade, DV, Atmos */
   0, 0,             /* idioma de legenda e de audio: 0 = seguir a conta */
+  0,                /* painel ao pausar: ligado (o default do web) */
 
   0,                /* posteres deitados: LIGADO (perfil do dono; fabrica: desligado) */
   0,                /* fundo em tela cheia: LIGADO (perfil; fabrica: desligado) */
@@ -352,6 +357,7 @@ static int lig(int op)  { return valor[op] == 0; }
 int ajustes_animacoes_reduzidas(void) { return valor[AJ_ANIM] == 1; }
 int ajustes_dolby_vision(void)        { return lig(AJ_DV); }
 int ajustes_dolby_atmos(void)         { return lig(AJ_ATMOS); }
+int ajustes_pausa_overlay(void)       { return lig(AJ_PAUSA_OVERLAY); }
 int ajustes_idioma_ingles(void)       { return valor[AJ_IDIOMA] == 1; }
 
 // `collapseSidebar: modernSidebar ? false : Boolean(collapseSidebar)` — a barra
