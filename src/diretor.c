@@ -136,7 +136,7 @@ static void *buscar(void *arg) {
   if (!id) goto falha;
   for (int tent = 0; tent < 2 && !bio[0]; tent++) {
     snprintf(url, sizeof url, "https://api.themoviedb.org/3/person/%ld?api_key=%s&language=%s",
-             id, chave, tent ? "en-US" : "pt-BR");
+             id, chave, tent ? "en-US" : desc_tmdb_idioma());
     corpo = rede_baixar(url, 15);
     if (!corpo) continue;
     { char departamento[64] = "";

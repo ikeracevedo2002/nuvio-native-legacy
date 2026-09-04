@@ -51,6 +51,10 @@ static char dirArteDesc[512];
 
 void desc_tmdb_definir(const char *chave) {
   if (!chave || !*chave) return;
+  // Toda chamada aqui e da API v3 (?api_key=). A conta pode trazer um token v4
+  // (JWT "eyJ...", ~200 caracteres): posto em api_key da 401 em tudo — MEDIDO
+  // na TV — e nem cabe no campo. Fica a chave do pacote.
+  if (strlen(chave) != 32 || !strncmp(chave, "eyJ", 3)) { printf("[desc] tmdb: chave da conta nao e v3, ignorada\n"); return; }
   snprintf(tmdbChave, sizeof tmdbChave, "%s", chave);
   printf("[desc] tmdb: chave da conta\n");
   fflush(stdout);
@@ -1663,3 +1667,5 @@ void desc_pedir_titulo(const char *imdb) {
 
 int desc_titulo_pronto(void) { int v = sobIndice; sobIndice = -1; return v; }
 int desc_titulo_buscando(void) { return sobFioVivo; }
+
+const char *desc_tmdb_idioma(void) { return ajustes_idioma_ingles() ? "en-US" : "pt-BR"; }

@@ -7,6 +7,7 @@
 #include "debrid.h"
 #include "colecoes.h"
 #include "trakt.h"
+#include "traktauth.h"
 #include "catalogo.h"
 #include "progresso.h"
 #include "syncprog.h"
@@ -428,7 +429,13 @@ void sync_passo(unsigned agoraMs) {
   // catalogos). A chave do TMDB e do mdblist so enriquecem o que ja esta la.
   { int remontar = 0;
   if (temAddonsRem) { addons_definir_lista(addonsRem, nAddonsRem); temAddonsRem = 0; remontar = 1; }
-  if (temTraktRem)  { trakt_definir(traktTok, nuvem_trakt_cliente()); temTraktRem = 0; remontar = 1; }
+  // Vinculo feito NESTA TV ganha do que a conta manda: o servidor nao aceita o
+  // push de "trakt" (400 22023), entao a linha da conta pode ser um token
+  // antigo e vencido — aplica-lo por cima do novo devolvia 401 em tudo logo
+  // depois de a pessoa ter acabado de autorizar.
+  if (temTraktRem)  { if (traktauth_estado() != TRA_LIGADO) { trakt_definir(traktTok, nuvem_trakt_cliente()); remontar = 1; }
+                      else printf("[sync] trakt: vinculo local mantido, credencial da conta ignorada\n");
+                      temTraktRem = 0; }
   if (temTmdb)      { desc_tmdb_definir(tmdbKey);   temTmdb = 0; }
   if (temMdb)       { extras_definir_chave(mdbKey); temMdb = 0; }
   // A ordem da home entra no MESMO remontar, e so quando MUDOU de verdade.

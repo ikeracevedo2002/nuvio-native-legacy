@@ -60,8 +60,8 @@ static void *buscar(void *arg) {
   // combinados numa chamada so. Separado seriam dois pedidos para desenhar uma
   // tela — e o segundo so serve se o primeiro deu certo.
   snprintf(url, sizeof url,
-           "%s/person/%ld?api_key=%s&language=pt-BR"
-           "&append_to_response=combined_credits", TMDB, id, chave);
+           "%s/person/%ld?api_key=%s&language=%s"
+           "&append_to_response=combined_credits", TMDB, id, chave, desc_tmdb_idioma());
   corpo = rede_baixar(url, 20);
   if (!corpo) {
     pthread_mutex_lock(&trava); fioVivo = 0; pthread_mutex_unlock(&trava);

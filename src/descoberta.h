@@ -30,6 +30,9 @@ void desc_tmdb(const char *dirArte);
 // campo `api_key`. Enquanto a chave sair do arquivo, ela vai dentro do .ipk e
 // e a chave de quem montou o pacote — cota dele, para todo mundo que instalar.
 void desc_tmdb_definir(const char *chave);
+// "pt-BR" ou "en-US", conforme o idioma da interface: sinopse, biografia e nome
+// de colecao vem do TMDB ja traduzidos, e em ingles vinham em portugues.
+const char *desc_tmdb_idioma(void);
 
 // A chave do TMDB ja carregada. Devolve "" quando art/tmdb.txt nao existe.
 // O modulo `pessoa` precisa dela para a filmografia, e ler o arquivo duas vezes

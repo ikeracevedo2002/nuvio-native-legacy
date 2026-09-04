@@ -446,9 +446,9 @@ static void *buscar(void *arg) {
       // chegavam e eram descartados. Agora a ficha inteira e os trailers saem
       // daqui, sem nenhuma viagem a mais.
       snprintf(url, sizeof url,
-               "%s/movie/%ld?api_key=%s&language=pt-BR"
+               "%s/movie/%ld?api_key=%s&language=%s"
                "&append_to_response=release_dates,videos",
-               "https://api.themoviedb.org/3", idFilme, chave);
+               "https://api.themoviedb.org/3", idFilme, chave, desc_tmdb_idioma());
       corpo = rede_baixar(url, 15);
       if (corpo) {
         // A ficha abaixo escreve varios campos globais. Segura a mesma trava
@@ -554,8 +554,8 @@ static void *buscar(void *arg) {
       }
     }
     if (idCol > 0) {
-      snprintf(url, sizeof url, "%s/collection/%ld?api_key=%s&language=pt-BR",
-               "https://api.themoviedb.org/3", idCol, chave);
+      snprintf(url, sizeof url, "%s/collection/%ld?api_key=%s&language=%s",
+               "https://api.themoviedb.org/3", idCol, chave, desc_tmdb_idioma());
       corpo = rede_baixar(url, 15);
       if (corpo) {
         struct { char t[120], a[8]; long id; } ach[EX_COL_MAX];
