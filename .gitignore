@@ -26,3 +26,6 @@ deploy/app/art/addons.txt
 deploy/app/art/ajustes.txt
 deploy/app/art/collections.json
 deploy/app/art/collections/
+
+# Rascunho do post: material de divulgacao, nao faz parte do projeto.
+POST-REDDIT.md
