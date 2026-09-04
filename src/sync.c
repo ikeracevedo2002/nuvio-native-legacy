@@ -4,6 +4,8 @@
 #include "perfis.h"
 #include "dados.h"
 #include "addons.h"
+#include "debrid.h"
+#include "colecoes.h"
 #include "trakt.h"
 #include "catalogo.h"
 #include "progresso.h"
@@ -68,6 +70,8 @@ static int  aplicarAjustes = 1;
 // resposta chegava, virava um numero no resumo e era jogada fora.
 static char *catHomeBlob;
 static int   temCatHomeBlob;
+static char *colBlob;        // sync_pull_collections, lido por colecoes.c no fio principal
+static int   temColBlob;
 
 // ---------------------------------------------------------------- utilitarios
 
@@ -195,10 +199,13 @@ static void puxarCredenciais(void) {
       if (js_texto(cred, cred + strlen(cred), "api_key", mdbKey, sizeof mdbKey))
         temMdb = 1;
     }
-    // debrid:* NAO e aplicado hoje de proposito: as chaves de debrid que este
-    // app usa ja vem embutidas na URL do addon (ver addons.h), entao aplicar a
-    // chave solta nao mudaria nada e daria a impressao falsa de que o app fala
-    // com o provedor por conta propria.
+    else if (!strncmp(prov, "debrid:", 7)) {
+      // A chave solta serve para resolver torrent sem url (debrid.c). Quem tem
+      // a chave embutida na URL do addon nao e afetado: esses ja vem com url.
+      char k[200];
+      if (js_texto(cred, cred + strlen(cred), "api_key", k, sizeof k))
+        debrid_definir_chave(prov + 7, k);
+    }
   }
   free(r);
 }
@@ -333,6 +340,10 @@ static void puxarSoLeitura(void) {
   snprintf(corpo, sizeof corpo, "{\"p_profile_id\":%d}", perfil);
   cBiblio   = contarRpc("sync_pull_library", corpo);
   cColecoes = contarRpc("sync_pull_collections", corpo);
+  if (cColecoes > 0 && !jaAusente("sync_pull_collections")) {
+    int st = 0; char *r = sessao_rpc("sync_pull_collections", corpo, &st);
+    if (ok2xx(r, st)) { free(colBlob); colBlob = r; temColBlob = 1; } else free(r);
+  }
 
   // MEDIDO: `p_page` comeca em 1. Com 0 o servidor responde 400 "OFFSET must
   // not be negative" — a conta dele e (p_page - 1) * p_page_size.
@@ -437,6 +448,10 @@ void sync_passo(unsigned agoraMs) {
     catHomeBlob = NULL;
     temCatHomeBlob = 0;
   }
+  if (temColBlob && colBlob) {
+    if (col_definir_json(colBlob) > 0) remontar = 1;
+    free(colBlob); colBlob = NULL; temColBlob = 0;
+  }
   if (remontar) desc_repetir(); }
   if (temAjustesBlob && ajustesBlob) {
     ajustes_aplicar_blob(ajustesBlob);
@@ -492,6 +507,7 @@ void sync_esquecer_usuario(void) {
   catHomeBlob = NULL;
   temCatHomeBlob = 0;
   addons_esquecer();
+  debrid_esquecer();
   trakt_esquecer();
   perfis_esquecer();
   prog_esquecer_tudo();

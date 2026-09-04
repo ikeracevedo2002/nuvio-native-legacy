@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <dlfcn.h>
 
 // Constantes da libcurl escritas a mao: nao ha curl.h no SDK do aparelho, e
@@ -284,7 +285,11 @@ char *rede_postar_st(const char *url, int segundos, const char *const *cab,
   curl_setopt(c, OPT_POSTFIELDS, corpo ? corpo : "");
   if (slist_append) {
     int k;
-    lista = slist_append(lista, "Content-Type: application/json");
+    // JSON e o padrao (Supabase, Trakt); quem manda o proprio Content-Type
+    // (Real-Debrid quer form-urlencoded) nao recebe um segundo.
+    { int temCt = 0;
+      for (k = 0; cab && cab[k]; k++) if (!strncasecmp(cab[k], "Content-Type:", 13)) temCt = 1;
+      if (!temCt) lista = slist_append(lista, "Content-Type: application/json"); }
     for (k = 0; cab && cab[k]; k++) lista = slist_append(lista, cab[k]);
     if (lista) curl_setopt(c, OPT_HTTPHEADER, lista);
   }

@@ -33,6 +33,11 @@ typedef struct {
   long tamanhoMB;       // 0 quando desconhecido
   char descricao[2048];
   char arquivo[512];
+  // Stream SEM url, so com o hash do torrent (Torrentio/Comet sem debrid na
+  // URL). So entra na lista quando debrid_ativo(); a url e preenchida na
+  // verificacao, por debrid_resolver.
+  char infoHash[48];
+  int  fileIdx;         // -1 quando o addon nao disse
 } Stream;
 
 // Parser sem rede: o chamador libera *saida. Retorna -1 se a alocacao falhar.

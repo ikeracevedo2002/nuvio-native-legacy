@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include "addons.h"
 #include "marco.h"
+#include "debrid.h"
 
 #define FOLHA_W       720.0f
 #define FOLHA_LINHA   228.0f
@@ -47,11 +48,16 @@ Uint32 stream_idade_ms(void) {
 }
 
 void stream_definir_lista(const Stream *l, int qtd) {
+  int i, k = 0;
   recebidaEm = SDL_GetTicks();
   Stream *nova = l && qtd > 0 ? malloc(sizeof(Stream) * (size_t)qtd) : NULL;
   if (l && qtd > 0 && !nova) return;
-  if (nova) memcpy(nova, l, sizeof(Stream) * (size_t)qtd);
-  free(lista); lista = nova; n = nova ? qtd : 0; atual = -1;
+  // Torrent sem url so fica se ha debrid para resolve-lo; senao seria uma linha
+  // que nunca toca (shouldListStream do web).
+  for (i = 0; i < qtd && nova; i++)
+    if (l[i].url[0] || debrid_ativo()) nova[k++] = l[i];
+  if (nova && qtd - k) printf("[fonte] %d torrents sem debrid descartados\n", qtd - k);
+  free(lista); lista = nova; n = nova ? k : 0; atual = -1;
   foco = 0;
 }
 
@@ -136,6 +142,13 @@ static void *fioVerificar(void *u) {
     meu = proxVerif++;
     pthread_mutex_unlock(&verTrava);
     i = verifs[meu].idx;
+    if (!lista[i].url[0] && lista[i].infoHash[0]) {
+      // Link recem-saido do unrestrict: nao precisa da segunda viagem abaixo.
+      if (debrid_resolver(lista[i].infoHash, lista[i].fileIdx, lista[i].url, sizeof lista[i].url))
+        verifs[meu].ok = 1;
+      else printf("[fonte] %d torrent nao resolveu no debrid\n", i);
+      continue;
+    }
     if (!lista[i].url[0]) continue;
     // 10 s e nao 20: em paralelo o timeout deixa de ser somado, mas continua
     // sendo o tempo que o dono espera pela mais lenta.

@@ -35,8 +35,19 @@ int stream_extrair(const char *json, const char *provedor, Stream **saida) {
     fim = js_fim(p);
     if (!fim || fim <= p) break;
     js_texto(p, fim, "url", s.url, sizeof s.url);
-    // Nao expor torrents/externalUrl como links diretos nem tocar URL cortada.
-    if ((!strncmp(s.url, "http://", 7) || !strncmp(s.url, "https://", 8)) &&
+    if (!s.url[0]) js_texto(p, fim, "externalUrl", s.url, sizeof s.url);
+    s.fileIdx = -1;
+    // Torrent puro: sem url, com infoHash (no topo ou dentro de clientResolve,
+    // como o AIOStreams manda). A url nasce depois, no debrid.
+    if (!s.url[0] || strncmp(s.url, "http", 4)) {
+      const char *cr = strstr(p, "\"clientResolve\"");
+      s.url[0] = 0;
+      if (!js_texto(p, fim, "infoHash", s.infoHash, sizeof s.infoHash) && cr && cr < fim)
+        js_texto(cr, fim, "infoHash", s.infoHash, sizeof s.infoHash);
+      s.fileIdx = (int)js_num(p, fim, "fileIdx", -1);
+    }
+    // Nao tocar URL cortada; sem url e sem hash nao ha o que tocar.
+    if ((s.infoHash[0] || !strncmp(s.url, "http", 4)) &&
         strlen(s.url) < sizeof s.url - 1) {
       js_texto(p, fim, "name", s.rotulo, sizeof s.rotulo);
       js_texto(p, fim, "description", s.descricao, sizeof s.descricao);
