@@ -12,6 +12,7 @@
 // (js/ui/screens/settings/settingsScreen.js), inclusive os rotulos em portugues
 // lidos da tela rodando.
 #include "ajustes.h"
+#include "linguas.h"
 #include "gfx.h"
 #include "text.h"
 #include "tex_cache.h"
@@ -50,7 +51,7 @@
 // e seguro: o arquivo e por chave, nao posicional (ver ajustes_dir).
 typedef enum {
   // Reproducao
-  AJ_QUALIDADE, AJ_DV, AJ_ATMOS,
+  AJ_QUALIDADE, AJ_DV, AJ_ATMOS, AJ_LEG_LINGUA, AJ_AUD_LINGUA,
   // Layout da Home
   AJ_LANDSCAPE, AJ_HERO_CHEIO,
   // Conteudo da Home
@@ -94,6 +95,24 @@ static const char *V_DESCOBRIR[] = { "Mostrar na Busca", "Na barra lateral", "De
 // `homeImdbRatingsVisibility` — normalizeHomeImdbRatingsVisibility so aceita
 // SHOW_ALL e HIDE_ALL.
 static const char *V_NOTAS[]     = { "Mostrar", "Ocultar" };
+// Preenchido em rotulosDeIdioma(), no arranque: os nomes saem de linguas.c em
+// vez de serem uma segunda lista escrita a mao aqui. LING_MAX_OPC e folga: se
+// linguas.c crescer, o excedente simplesmente nao aparece — melhor que ler
+// fora do vetor.
+#define LING_MAX_OPC 24
+static const char *V_LINGUA[LING_MAX_OPC];
+static int         nLingua;
+static void rotulosDeIdioma(void) {
+  int i, n = ling_opcao_n();
+  if (n > LING_MAX_OPC) n = LING_MAX_OPC;
+  for (i = 0; i < n; i++) {
+    const char *c = ling_opcao_codigo(i);
+    // "" = seguir a conta; "*" = mostrar tudo. Os dois primeiros sao acoes, nao
+    // idiomas, e por isso tem rotulo proprio.
+    V_LINGUA[i] = !c[0] ? "Da conta" : (!strcmp(c, "*") ? "Todas" : ling_nome(c));
+  }
+  nLingua = n;
+}
 
 // Natureza da linha.
 // OP_ACAO responde ao OK, nao a esquerda/direita. Ela NAO e leitura: uma linha
@@ -119,6 +138,10 @@ static const Opcao OPCOES[AJ_N] = {
   ESC("Qualidade máxima",           V_QUALIDADE, 4),
   ESC("Dolby Vision",               V_LIGA, 2),
   ESC("Dolby Atmos",                V_LIGA, 2),
+  // O `n` real e escrito por rotulosDeIdioma(); 2 aqui so mantem a tabela
+  // valida antes do arranque.
+  ESC("Idioma da legenda",          V_LINGUA, 2),
+  ESC("Idioma do áudio",            V_LINGUA, 2),
 
   ESC("Pôsteres horizontais",       V_LIGA, 2),   // modernLandscapePostersEnabled
   ESC("Fundo em tela cheia",        V_LIGA, 2),   // modernHeroFullScreenBackdropEnabled
@@ -185,6 +208,7 @@ static const Opcao OPCOES[AJ_N] = {
 // estavam. Os nomes seguem os do app web onde existe correspondente.
 static const char *CHAVE[] = {
   "qualidade", "dolbyVision", "dolbyAtmos",
+  "legendaIdioma", "audioIdioma",
   "modernLandscapePostersEnabled", "modernHeroFullScreenBackdropEnabled",
   "collapseSidebar", "modernSidebar", "modernSidebarBlur",
   "heroSectionEnabled", "-heroCatalogKeys",
@@ -222,7 +246,7 @@ typedef char conferi_uma_chave_por_opcao[
 // visual, nao um nivel de navegacao: cima/baixo atravessa os cabecalhos sem
 // parar neles, como no aparelho. Os titulos sao os do app web.
 static const struct { const char *titulo; int ini, n; } SECOES[] = {
-  { "Reprodução",                     AJ_QUALIDADE,           3 },
+  { "Reprodução",                     AJ_QUALIDADE,           5 },
   { "Layout da Home",                 AJ_LANDSCAPE,           2 },
   { "Conteúdo da Home",               AJ_RAIL,               12 },
   { "Continuar assistindo",           AJ_CW_LIGADO,           7 },
@@ -241,8 +265,14 @@ static const struct { const char *titulo; int ini, n; } SECOES[] = {
 // anotada linha a linha: as quatro que o perfil do dono diverge de fabrica
 // nascem como ele as deixou, porque e o que ele ve hoje. Todas sao trocaveis
 // aqui, que era o ponto.
+// Definidas mais abaixo, junto do desenho das linhas; declaradas aqui porque a
+// leitura do arquivo e o tratamento de tecla vem antes no arquivo.
+static int  nValores(int op);
+static void aplicarIdioma(int op);
+
 static int valor[AJ_N] = {
   0, 0, 0,          /* qualidade, DV, Atmos */
+  0, 0,             /* idioma de legenda e de audio: 0 = seguir a conta */
 
   0,                /* posteres deitados: LIGADO (perfil do dono; fabrica: desligado) */
   0,                /* fundo em tela cheia: LIGADO (perfil; fabrica: desligado) */
@@ -430,7 +460,7 @@ static const char *const *literaisDe(int op) {
 
 static int limita(int op, int v) {
   const Opcao *o = &OPCOES[op];
-  if (o->tipo == OP_ESCOLHA) return (v >= 0 && v < o->n) ? v : valor[op];
+  if (o->tipo == OP_ESCOLHA) return (v >= 0 && v < nValores(op)) ? v : valor[op];
   if (o->tipo == OP_NUMERO)  return v < o->min ? o->min : (v > o->max ? o->max : v);
   return valor[op];
 }
@@ -456,6 +486,10 @@ void ajustes_dir(const char *dir) {
     }
   }
   fclose(f);
+  // A escolha lida do disco so existe de verdade quando chega em linguas.c.
+  rotulosDeIdioma();
+  aplicarIdioma(AJ_LEG_LINGUA);
+  aplicarIdioma(AJ_AUD_LINGUA);
 }
 
 static void gravar(void) {
@@ -480,11 +514,44 @@ static void gravar(void) {
 }
 
 
+// Idiomas de audio e legenda do blob. NAO passam pelo laco das opcoes abaixo
+// porque o valor deles nao e um indice de enum, e um codigo ISO ("en", "pt") —
+// e porque as sentinelas do web ("DEVICE", "none", "off") precisam virar
+// "sem filtro" em vez de virar um idioma inventado. Ver linguas.h.
+//
+// MEDIDO no app web (profileSettingsSyncService.js:1066): as quatro chaves
+// vivem sob `player_settings`, ja em snake_case, como o resto do blob.
+static void idiomasDoBlob(const char *json, const char *fim) {
+  static const struct { const char *chave; void (*aplica)(const char *); } M[] = {
+    { "subtitle_preferred_language",         ling_conta_legenda  },
+    { "subtitle_secondary_language",         ling_conta_legenda2 },
+    { "preferred_audio_language",            ling_conta_audio    },
+  };
+  size_t k;
+  for (k = 0; k < sizeof M / sizeof *M; k++) {
+    char bruto[80], texto[80];
+    size_t n;
+    if (!js_bruto(json, fim, M[k].chave, bruto, sizeof bruto)) continue;
+    if (bruto[0] == '{' &&
+        !js_bruto(bruto, bruto + strlen(bruto), "value", texto, sizeof texto))
+      continue;
+    if (bruto[0] != '{') snprintf(texto, sizeof texto, "%s", bruto);
+    n = strlen(texto);
+    if (n >= 2 && texto[0] == '"') { memmove(texto, texto + 1, n - 2); texto[n - 2] = 0; }
+    else if (!strcmp(texto, "null")) texto[0] = 0;
+    M[k].aplica(texto);
+  }
+  printf("[ajustes] idiomas da conta: legenda=\"%s\" audio=\"%s\"\n",
+         ling_legenda(), ling_audio());
+  fflush(stdout);
+}
+
 int ajustes_aplicar_blob(const char *json) {
   const char *fim;
   int i, mudou = 0, reconhecidas = 0;
   if (!json || !*json) return 0;
   fim = json + strlen(json);
+  idiomasDoBlob(json, fim);
 
   for (i = 0; i < AJ_N; i++) {
     char snake[80], embrulho[400], bruto[160];
@@ -564,7 +631,13 @@ int ajustes_aplicar_blob(const char *json) {
   return mudou;
 }
 
-int ajustes_iniciar(void) { focoOp = 0; scrollY = 0.0f; sair = 0; return 1; }
+int ajustes_iniciar(void) {
+  focoOp = 0; scrollY = 0.0f; sair = 0;
+  // Tambem aqui, e nao so em ajustes_dir: sem arquivo de ajustes aquele caminho
+  // volta cedo e os rotulos ficariam vazios na primeira abertura da tela.
+  rotulosDeIdioma();
+  return 1;
+}
 void ajustes_encerrar(void) { }
 int ajustes_quer_sair(void) { return sair; }
 
@@ -763,7 +836,12 @@ void ajustes_evento(const SDL_Event *e) {
     } else {
       // Escolha circula: a lista e curta e voltar do fim ao inicio poupa
       // toques no controle. Sem circular, o ultimo valor vira um beco.
-      valor[focoOp] = (valor[focoOp] + (dir > 0 ? 1 : o->n - 1)) % o->n;
+      { int n = nValores(focoOp);
+        valor[focoOp] = (valor[focoOp] + (dir > 0 ? 1 : n - 1)) % n; }
+      // A escolha de idioma so vale quando chega em linguas.c; guardar o indice
+      // e desenhar o rotulo deixaria o ajuste bonito e inerte, que foi
+      // exatamente o defeito do seletor de idioma da interface.
+      if (focoOp == AJ_LEG_LINGUA || focoOp == AJ_AUD_LINGUA) aplicarIdioma(focoOp);
     }
     gravar();   // grava a cada mudanca: nao ha botao de "salvar" nesta tela
   }
@@ -790,6 +868,22 @@ void ajustes_atualizar(float dt, Uint32 agora) {
   scrollY = ajustes_animacoes_reduzidas() ? alvo : anim_mola(scrollY, alvo, dt, NV_MOLA_SCROLL);
 }
 
+// Leva a escolha da linha para linguas.c. "Da conta" (indice 0) manda string
+// vazia, que e como linguas.c representa "sem escolha local, siga a conta".
+static void aplicarIdioma(int op) {
+  const char *c = ling_opcao_codigo(valor[op]);
+  if (op == AJ_LEG_LINGUA) ling_local_legenda(c);
+  else                     ling_local_audio(c);
+}
+
+// Quantos valores uma linha de escolha tem. As duas linhas de idioma sao as
+// unicas dinamicas: a lista vem de linguas.c e nao da tabela OPCOES, que e
+// const e foi escrita antes de linguas.c existir.
+static int nValores(int op) {
+  if (op == AJ_LEG_LINGUA || op == AJ_AUD_LINGUA) return nLingua > 0 ? nLingua : 1;
+  return OPCOES[op].n;
+}
+
 // Texto do valor de uma linha. Buffer estatico porque so uma linha e desenhada
 // por vez dentro de desenhaLinha.
 static const char *textoValor(int op) {
@@ -799,6 +893,10 @@ static const char *textoValor(int op) {
   if (o->tipo == OP_NUMERO) {
     snprintf(buf, sizeof buf, "%d%s", valor[op], o->sufixo ? o->sufixo : "");
     return buf;
+  }
+  if (op == AJ_LEG_LINGUA || op == AJ_AUD_LINGUA) {
+    int v = valor[op];
+    return (v >= 0 && v < nLingua && V_LINGUA[v]) ? V_LINGUA[v] : "Da conta";
   }
   return o->valores[valor[op]];
 }

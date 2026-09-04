@@ -1,4 +1,5 @@
 #include "addons.h"
+#include "linguas.h"
 #include "streams.h"
 #include "rede.h"
 #include "js.h"
@@ -239,36 +240,25 @@ const Legenda *addons_legenda(int i) {
   return r;
 }
 
-// Idiomas que interessam a esta casa, na ordem em que devem aparecer. Trazer as
-// 70 que o OpenSubtitles devolve seria uma lista impossivel de percorrer com
-// controle remoto.
-static const char *IDIOMAS_PT[] = {
-  "pob", "pt-br", "pt_br", "ptb", "br", "por", "pt"
-};
-static const char *IDIOMAS_EN[] = {
-  "eng", "en", "en-us", "en_us", "en-gb", "en_gb"
-};
-
-// 0 = portugues, 1 = ingles. O usuario pediu explicitamente estes dois grupos;
-// espanhol nao entra mais como fallback silencioso. Variantes regionais sao
-// normalizadas aqui, antes de ocupar uma das doze linhas da TV.
-static int grupoIdioma(const char *l) {
-  size_t i;
-  for (i = 0; i < sizeof IDIOMAS_PT / sizeof *IDIOMAS_PT; i++)
-    if (!strcasecmp(l, IDIOMAS_PT[i])) return 0;
-  for (i = 0; i < sizeof IDIOMAS_EN / sizeof *IDIOMAS_EN; i++)
-    if (!strcasecmp(l, IDIOMAS_EN[i])) return 1;
-  return -1;
+// Grupos de idioma da busca de legenda, NA ORDEM em que aparecem.
+//
+// O QUE ESTAVA AQUI: duas listas cravadas ("pob","pt-br",... e "eng","en",...)
+// com o comentario "o usuario pediu explicitamente estes dois grupos". Toda
+// legenda de outro idioma era descartada sem aviso — quem instala o pacote e
+// fala espanhol abria o player e nao achava legenda nenhuma.
+//
+// AGORA: os grupos vem da preferencia (Ajustes desta TV, senao a conta). SEM
+// preferencia nenhuma, ha UM grupo vazio, e grupo vazio casa com tudo: a lista
+// sai sem filtro. Ver linguas.h.
+static int gruposIdioma(const char *g[2]) {
+  const char *a = ling_legenda(), *b = ling_legenda2();
+  int n = 0;
+  if (a[0] && strcasecmp(a, "none")) g[n++] = a;
+  if (b[0] && strcasecmp(b, "none") && !ling_casa(b, a)) g[n++] = b;
+  if (!n) { g[n++] = ""; }
+  return n;
 }
 
-static const char *nomeIdioma(const char *c) {
-  if (!strcasecmp(c, "pob") || !strcasecmp(c, "pt-br") ||
-      !strcasecmp(c, "pt_br") || !strcasecmp(c, "ptb") || !strcasecmp(c, "br"))
-    return "Portugues (BR)";
-  if (!strcasecmp(c, "por") || !strcasecmp(c, "pt")) return "Portugues";
-  if (grupoIdioma(c) == 1) return "Ingles";
-  return c;
-}
 
 static int pedidoMudou(unsigned geracao) {
   int mudou;
@@ -342,31 +332,35 @@ static void *buscarLegendas(void *u) {
       if (!corpo) continue;
       p = js_array(corpo, NULL, "subtitles");
       {
-        int grupo;
-        // Uma passada por grupo garante ordem PT -> EN e evita que doze
-        // resultados portugueses consumam a lista inteira antes do ingles.
-        // Seis por idioma e um limite deliberado para navegacao por D-pad.
-        for (grupo = 0; grupo < 2; grupo++) {
+        const char *grupos[2];
+        int nGrupos = gruposIdioma(grupos), gi;
+        // Uma passada por grupo garante a ordem preferido -> alternativo e
+        // evita que doze resultados do primeiro idioma consumam a lista inteira
+        // antes do segundo. O teto por grupo e deliberado para navegacao por
+        // D-pad — e vira a lista toda quando ha um grupo so.
+        for (gi = 0; gi < nGrupos; gi++) {
+          const char *grupo = grupos[gi];
+          int teto = nGrupos > 1 ? LEG_MAX / 2 : LEG_MAX;
           const char *q = p;
           int noGrupo = 0, j;
           for (j = 0; j < nAchadas; j++)
-            if (grupoIdioma(achadas[j].idioma) == grupo) noGrupo++;
-          while (q && nAchadas < LEG_MAX && noGrupo < LEG_MAX / 2) {
+            if (ling_casa(achadas[j].idioma, grupo)) noGrupo++;
+          while (q && nAchadas < LEG_MAX && noGrupo < teto) {
             const char *f = js_fim(q);
             char l[16] = "", nome[120] = "";
             Legenda *d = &achadas[nAchadas];
             if (episodioCorreto(q, f, temporada, episodio) &&
-                js_texto(q, f, "lang", l, sizeof l) && grupoIdioma(l) == grupo &&
+                js_texto(q, f, "lang", l, sizeof l) && ling_casa(l, grupo) &&
                 js_texto(q, f, "url", d->url, sizeof d->url)) {
               js_texto(q, f, "subtitleFileName", nome, sizeof nome);
               if (!nome[0]) js_texto(q, f, "movieReleaseName", nome, sizeof nome);
               snprintf(d->idioma, sizeof d->idioma, "%s", l);
               if (temporada > 0 && episodio > 0)
                 snprintf(d->rotulo, sizeof d->rotulo, "T%dE%d  \xc2\xb7  %s%s%.22s",
-                         temporada, episodio, nomeIdioma(l), nome[0] ? "  \xc2\xb7  " : "", nome);
+                         temporada, episodio, ling_nome(l), nome[0] ? "  \xc2\xb7  " : "", nome);
               else
                 snprintf(d->rotulo, sizeof d->rotulo, "%s%s%.36s",
-                         nomeIdioma(l), nome[0] ? "  \xc2\xb7  " : "", nome);
+                         ling_nome(l), nome[0] ? "  \xc2\xb7  " : "", nome);
               nAchadas++; noGrupo++;
             }
             q = js_prox(f);

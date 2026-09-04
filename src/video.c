@@ -1,4 +1,5 @@
 #include "video.h"
+#include "linguas.h"
 #include <SDL2/SDL.h>
 #include "marco.h"
 #include "mkv.h"
@@ -82,6 +83,9 @@ static double posAoCarregar;
 // tinha escolhido a dele, via a escolha ser desfeita sozinha. `-1` = nao ha o
 // que restaurar.
 static int   audioAoCarregar = -1, legAoCarregar = -1;
+// Definida bem abaixo; usada na leitura do sourceInfo para aplicar o idioma
+// de audio preferido assim que as faixas aparecem.
+void video_escolher_audio(int i);
 static char  legUrlAoCarregar[1024];
 // URL da legenda EXTERNA em uso. O legAtual nao a representa: quem escolhe uma
 // legenda do OpenSubtitles nao mexe em faixa nenhuma do arquivo, so aponta o
@@ -238,57 +242,9 @@ static int nAudio, nLeg, audioAtual, legAtual = -1;
 // tocar, porque o video_tocar zera vidDV ao comecar uma sessao nova.
 static int dvPedido;
 
-// Nome legivel do idioma. So os que aparecem de verdade neste acervo; o resto
-// fica com o codigo, que e melhor que "Desconhecido" — o codigo ao menos
-// identifica.
-static const char *idiomaLegivel(const char *c) {
-  // Tabela com ACENTO — e nome de idioma na tela, nao identificador. E com os
-  // codigos de tres letras (ISO 639-2) alem dos de duas, porque MKV de release
-  // etiqueta quase sempre com os de tres.
-  static const struct { const char *cod, *nome; } T[] = {
-    { "pt", "Português" },  { "pob", "Português (BR)" }, { "por", "Português" },
-    { "pt-br", "Português (BR)" }, { "ptb", "Português (BR)" },
-    { "en", "Inglês" },     { "eng", "Inglês" },
-    { "es", "Espanhol" },   { "spa", "Espanhol" }, { "esp", "Espanhol" },
-    { "fr", "Francês" },    { "fre", "Francês" },  { "fra", "Francês" },
-    { "de", "Alemão" },     { "ger", "Alemão" },   { "deu", "Alemão" },
-    { "it", "Italiano" },   { "ita", "Italiano" },
-    { "ja", "Japonês" },    { "jpn", "Japonês" },
-    { "ko", "Coreano" },    { "kor", "Coreano" },
-    { "zh", "Chinês" },     { "chi", "Chinês" },   { "zho", "Chinês" },
-    { "ru", "Russo" },      { "rus", "Russo" },
-    { "ar", "Árabe" },      { "ara", "Árabe" },
-    { "hi", "Hindi" },      { "hin", "Hindi" },
-    { "nl", "Holandês" },   { "dut", "Holandês" }, { "nld", "Holandês" },
-    { "sv", "Sueco" },      { "swe", "Sueco" },
-    { "no", "Norueguês" },  { "nor", "Norueguês" },
-    { "da", "Dinamarquês" },{ "dan", "Dinamarquês" },
-    { "fi", "Finlandês" },  { "fin", "Finlandês" },
-    { "pl", "Polonês" },    { "pol", "Polonês" },
-    { "tr", "Turco" },      { "tur", "Turco" },
-    { "he", "Hebraico" },   { "heb", "Hebraico" },
-    { "th", "Tailandês" },  { "tha", "Tailandês" },
-    { "cs", "Tcheco" },     { "cze", "Tcheco" },
-    { "el", "Grego" },      { "gre", "Grego" },
-    { "hu", "Húngaro" },    { "hun", "Húngaro" },
-    { "ro", "Romeno" },     { "rum", "Romeno" },
-    { "uk", "Ucraniano" },  { "ukr", "Ucraniano" },
-    { "vi", "Vietnamita" }, { "vie", "Vietnamita" },
-    { "id", "Indonésio" },  { "ind", "Indonésio" },
-  };
-  size_t i;
-  if (!c || !*c) return "";
-  for (i = 0; i < sizeof T / sizeof *T; i++)
-    if (!strcasecmp(c, T[i].cod)) return T[i].nome;
-  // Sem nome na tabela, devolve o CODIGO EM MAIUSCULAS — e o que o app web faz
-  // quando nao sabe nomear ("ENG", "POR"). Mostrar o codigo diz alguma coisa;
-  // cair em "Legenda 3" nao diz nada.
-  { static char cx[16]; size_t k;
-    for (k = 0; c[k] && k + 1 < sizeof cx; k++)
-      cx[k] = (c[k] >= 'a' && c[k] <= 'z') ? (char)(c[k] - 32) : c[k];
-    cx[k] = 0;
-    return cx; }
-}
+// O nome legivel do idioma mora em linguas.c: addons.c precisava da mesma
+// tabela e mantinha uma propria, com tres idiomas.
+
 static char      midia[64];
 static double    posSeg, durSeg;
 static int       tocando, pronto, ligado;
@@ -548,7 +504,7 @@ static int aoEvento(LSHandle *h, LSMessage *m, void *u) {
           else if (c3 == 8) snprintf(ch, sizeof ch, "7.1");
           else if (c3 == 2) snprintf(ch, sizeof ch, "2.0"); }
         snprintf(f->rotulo, sizeof f->rotulo, "%s%s%s%s%s",
-                 f->idioma[0] ? idiomaLegivel(f->idioma) : "Faixa",
+                 f->idioma[0] ? ling_nome(f->idioma) : "Faixa",
                  imm[0] ? "  \xc2\xb7  " : (ch[0] ? "  \xc2\xb7  " : ""),
                  imm[0] ? "Atmos" : "",
                  (imm[0] && ch[0]) ? " " : "", ch);
@@ -586,7 +542,7 @@ static int aoEvento(LSHandle *h, LSMessage *m, void *u) {
         // Arquivo sem etiqueta de idioma e o caso comum em MKV de release.
         // Numerar e honesto; inventar "Ingles" seria pior.
         if (f->idioma[0])
-          snprintf(f->rotulo, sizeof f->rotulo, "%s", idiomaLegivel(f->idioma));
+          snprintf(f->rotulo, sizeof f->rotulo, "%s", ling_nome(f->idioma));
         else
           snprintf(f->rotulo, sizeof f->rotulo, "Legenda %d", f->numero + 1);
         nLeg++;
@@ -595,6 +551,27 @@ static int aoEvento(LSHandle *h, LSMessage *m, void *u) {
     }
     printf("[video] faixas: audio=%d legenda=%d atmos=%d\n", nAudio, nLeg, vidAtmos);
     fflush(stdout);
+
+    // Escolhe o audio no idioma preferido, se houver um e se o arquivo o
+    // tiver. Sem preferencia, ou sem faixa correspondente, NAO se mexe: a
+    // escolha do pipeline (faixa 0) e melhor que uma trocada por chute — quem
+    // quer outra abre a folha de faixas, que continua listando todas.
+    { const char *pref = ling_audio();
+      if (pref[0] && nAudio > 1) {
+        int i;
+        for (i = 0; i < nAudio; i++) {
+          if (!faixaAudio[i].idioma[0] || !ling_casa(faixaAudio[i].idioma, pref)) continue;
+          printf("[video] audio preferido: %s (faixa %d de %d)\n",
+                 ling_nome(faixaAudio[i].idioma), i + 1, nAudio);
+          fflush(stdout);
+          // Direto, e nao por audioAoCarregar: aquele campo e da RECUPERACAO
+          // (pipeline morto) e sobrescreve-lo aqui apagaria a faixa que a
+          // pessoa tinha escolhido antes da queda. O sourceInfo chega com o
+          // pipeline ja carregado, entao o selectTrack vale agora.
+          if (audioAoCarregar < 0) video_escolher_audio(i);
+          break;
+        }
+      } }
 
     // O PIPELINE NAO DA IDIOMA DE LEGENDA. Medido nesta TV, num arquivo com 43
     // legendas: o audioTrackInfo vem com "en"/"es"/"fr"/"it" e TODA entrada do
@@ -1012,11 +989,11 @@ static void *lerMkv(void *arg) {
       // escuro — e essa e justamente a lista que ele reclamou.
       if (fx[j].nome[0])
         snprintf(faixaLeg[i].rotulo, sizeof faixaLeg[i].rotulo, "%s%s%s",
-                 faixaLeg[i].idioma[0] ? idiomaLegivel(faixaLeg[i].idioma) : "",
+                 faixaLeg[i].idioma[0] ? ling_nome(faixaLeg[i].idioma) : "",
                  faixaLeg[i].idioma[0] ? "  \xc2\xb7  " : "", fx[j].nome);
       else if (faixaLeg[i].idioma[0])
         snprintf(faixaLeg[i].rotulo, sizeof faixaLeg[i].rotulo, "%s",
-                 idiomaLegivel(faixaLeg[i].idioma));
+                 ling_nome(faixaLeg[i].idioma));
       break;
     }
   }
