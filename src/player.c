@@ -26,6 +26,7 @@
 //      congelado sem saber o que houve.
 #include "player.h"
 #include "posplay.h"
+#include "extras.h"
 #include "video.h"
 #include "faixas.h"
 #include "gfx.h"
@@ -611,6 +612,13 @@ void player_encerrar(void) {
   legenda_desligar();
 }
 
+// O ultimo botao da fileira: "Episodios" numa serie, "Relacionados" num filme
+// que tenha o que mostrar. Num filme sem relacionado nenhum ele some, em vez de
+// ficar la sem fazer nada.
+static int temUltimoBotao(void) {
+  return epT > 0 || extras_n_relacionados() > 0;
+}
+
 static int ofertaProximo(void) {
   const CatEp *p=player_proximo_episodio();double fim;int tipo;
   if(!p||duracaoSeg<=1)return 0;
@@ -700,7 +708,15 @@ void player_evento(const SDL_Event *e) {
       // "legendas" e cair no audio fazia os dois botoes parecerem um so.
       case PLR_CC:      pedFaixas = 2;     break;   // 2 = coluna da legenda
       case PLR_FONTES:  pedFontes = 1; break;
-      case PLR_EPISODIOS: if (epT > 0) episodios_abrir(idx, epT, epE); break;
+      // MESMO LUGAR, DOIS PAPEIS. Numa serie o ultimo botao abre a lista de
+      // episodios; num filme nao ha lista, e o lugar passa a ser a porta de
+      // volta para os relacionados — que o dono pediu depois de a dispensa
+      // passar a grudar. Um botao a mais na fileira custaria largura que a
+      // serie nao tem sobrando.
+      case PLR_EPISODIOS:
+        if (epT > 0) episodios_abrir(idx, epT, epE);
+        else posplay_abrir_relacionados(idx);
+        break;
       default:          pedFaixas = 1;     break;   // 1 = coluna do audio
     }
     acordar();
@@ -742,7 +758,9 @@ void player_evento(const SDL_Event *e) {
   // Sem rotacao nas pontas: a fileira e curta e cabe inteira no olhar; dar a
   // volta no fim le como erro, nao como atalho.
   if (k == SDLK_LEFT  && botao > 0)          botao--;
-  else if (k == SDLK_RIGHT && botao < PLR_NBTNS - (epT > 0 ? 1 : 2)) botao++;
+  // O ULTIMO BOTAO existe no filme tambem: la ele e "Relacionados". Antes so a
+  // serie chegava nele (era so "Episodios") e o filme parava um antes.
+  else if (k == SDLK_RIGHT && botao < PLR_NBTNS - (temUltimoBotao() ? 1 : 2)) botao++;
   acordar();
 }
 
@@ -815,12 +833,11 @@ void player_atualizar(float dt, Uint32 agora) {
                    !episodios_aberto() && !stream_folha_aberta() &&
                    !faixas_aberta() && !ofertaProximo() && !posplay_visivel(),
                    idx, linhaEp);
-  // Os controles NAO saem mais de cena quando o painel sobe. A primeira versao
-  // os recolhia para os dois nao disputarem a mesma metade da tela; o dono
-  // testou e pediu o contrario — quer a ficha E a barra de tempo, com a ficha
-  // por cima dela. Agora quem se afasta e o painel, que e medido e ancorado
-  // acima do que o player desenha (ver pausao_desenhar).
-  if (pausao_visivel()) acordar();
+  // Com o painel de pe os controles SAEM de cena. Este ponto ja foi das duas
+  // formas: com os controles visiveis o dono achou pior e pediu de volta o
+  // comportamento original, com o painel ocupando o rodape sozinho, so que
+  // ancorado mais abaixo — onde a barra ficaria. Um lugar, um conteudo.
+  if (pausao_visivel()) visivel = 0;
 
   anim = anim_mola(anim, visivel ? 1.0f : 0.0f, dt,
                    visivel ? NV_MOLA_FOCO : NV_MOLA_DESFOCO);
@@ -1060,8 +1077,11 @@ void player_desenhar(Uint32 agora) {
   // de desenharControles de proposito: la ele depende de `desce`, que so existe
   // durante a animacao de entrada dos controles, e amarrar o painel a isso o
   // faria tremer junto.
-  { float yRow = NV_TELA_H - PLR_PAD_Y - PLR_BTN_D;
-    pausao_desenhar(agora, yRow - PLR_GAP_ROW - PLR_TRILHO_H - PAUSAO_FOLGA); }
+  // BASE NO RODAPE: o painel ocupa o lugar do player, que esta recolhido
+  // enquanto ele esta de pe. PLR_PAD_Y e a mesma margem inferior que os
+  // controles usam, entao os dois pousam na mesma linha e a troca entre um e
+  // outro nao desloca nada na tela.
+  pausao_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
 
   float a = anim * entrada;
   if (a <= 0.005f) return;   // tocando limpo: nada por cima da imagem
@@ -1169,10 +1189,6 @@ void player_desenhar(Uint32 agora) {
   // Texto tambem e o que o resto da tela usa (o relogio, o tempo, os selos),
   // entao o canto passa a ter UMA gramatica so.
   float hTit, yTit;
-  // Com o painel de pausa de pe o titulo sai daqui: o painel ja o mostra, maior
-  // e com a ficha junto. Dois titulos empilhados a 40px um do outro foi
-  // exatamente o que a foto mostrou.
-  if (!pausao_visivel())
   { const char *nome = (c && c->titulo[0]) ? c->titulo : "Reproduzindo";
     TxtLinha lt = txt_linha_corta(TXT_PLR_TITULO, nome, 255, 255, 255, 255,
                                   cw * 0.62f);
@@ -1190,7 +1206,7 @@ void player_desenhar(Uint32 agora) {
     float x0    = cx + PLR_BTN_D * 0.5f;
     float cxs[PLR_NBTNS];
     for (int i=0;i<PLR_NBTNS;i++) cxs[i]=x0+i*passo;
-    for (int i = 0; i < PLR_NBTNS - (epT > 0 ? 0 : 1); i++) {
+    for (int i = 0; i < PLR_NBTNS - (temUltimoBotao() ? 0 : 1); i++) {
       float f = focoB[i];
       int sel = (botao == i && !barraFoco);
       botaoCirculo(cxs[i], cyBotoes, f, a, sel);
@@ -1200,13 +1216,17 @@ void player_desenhar(Uint32 agora) {
         case PLR_CC:      iconeLegendas(cxs[i], cyBotoes, a, lum); break;
         case PLR_ASPECTO: iconeAspecto(cxs[i], cyBotoes, a, lum); break;
         case PLR_FONTES: iconeArquivo(cxs[i],cyBotoes,a,lum,"fontes",44); break;
+        // O icone e o mesmo nos dois papeis: "uma lista de coisas para
+        // escolher" serve para episodios e para relacionados, e desenhar um
+        // icone novo para uma acao que aparece so em filme nao se paga.
         case PLR_EPISODIOS: iconeArquivo(cxs[i],cyBotoes,a,lum,"episodios",44); break;
         default:          iconeAudio(cxs[i], cyBotoes, a, lum); break;
       }
     }
     if (!barraFoco) {
       const char *rotulos[]={"Reproduzir / pausar","Proporção","Legendas","Áudio","Fontes","Episódios"};
-      TxtLinha label=txt_linha(TXT_PG_FIM,rotulos[botao],210,212,218,255);
+      const char *rot = (botao==PLR_EPISODIOS && epT<=0) ? "Relacionados" : rotulos[botao];
+      TxtLinha label=txt_linha(TXT_PG_FIM,rot,210,212,218,255);
       txt_desenhar_alpha(label,cxs[botao]-label.w*.5f,cyBotoes+PLR_BTN_D*.5f+10,a);
     }
   }

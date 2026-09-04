@@ -630,6 +630,19 @@ static void *buscar(void *arg) {
             memcpy(achado[n].po, "https://", 8);
             memcpy(achado[n].po + 8, v + 1, k);
             achado[n].po[8 + k] = 0;
+            // .webp FORA. MEDIDO na TV: o SDL_image deste pacote nao tem WebP
+            // e todo cartaz do Trakt chega como `...jpg.webp` — 19 linhas de
+            // "decode falhou (Unsupported image format)" num unico arranque, e
+            // o sintoma na tela era o card vazio dos relacionados, tanto na
+            // pagina de titulo quanto no fim da reproducao.
+            //
+            // O servidor guarda o ORIGINAL sob o mesmo caminho sem o sufixo:
+            // conferido com curl, `...jpg.webp` devolve image/webp e `...jpg`
+            // devolve image/jpeg dos mesmos bytes de arte. Tirar cinco
+            // caracteres custa menos que embarcar libwebp no pacote.
+            { size_t t = strlen(achado[n].po);
+              if (t > 5 && !strcmp(achado[n].po + t - 5, ".webp"))
+                achado[n].po[t - 5] = 0; }
           }
         } }
       ano = js_num(p, f, "year", 0.0);
@@ -804,6 +817,17 @@ void extras_pedir_comentarios_ep(const char *imdbSerie, int temporada, int episo
 
 int extras_n_comentarios_ep(void) { return nComentEp; }
 int extras_comentarios_ep_carregando(void) { return epFioVivo; }
+
+// O fio de extras ainda esta no ar. Serve para separar "ainda nao chegou" de
+// "nao ha", que sao a mesma lista vazia — sem isso a pagina de filme mostrava
+// um buraco onde as recomendacoes vao ficar, ate elas chegarem.
+int extras_carregando(void) {
+  int v;
+  pthread_mutex_lock(&trava);
+  v = fioVivo;
+  pthread_mutex_unlock(&trava);
+  return v;
+}
 const char *extras_comentario_ep_usuario(int i) {
   return (i >= 0 && i < nComentEp) ? comentEp[i].user : "";
 }

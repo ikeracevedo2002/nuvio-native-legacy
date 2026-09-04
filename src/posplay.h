@@ -27,6 +27,12 @@
 void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
                        int ehSerie, int idxCatalogo, int janelaSerie);
 int  posplay_visivel(void);
+
+// Abre os relacionados a pedido (o botao do player), sem esperar o fim do
+// filme. Devolve 0 quando nao ha relacionado nenhum para mostrar. Necessario
+// porque a dispensa gruda: sem esta porta, um Voltar apagaria os relacionados
+// daquele filme para sempre.
+int  posplay_abrir_relacionados(int idxCatalogo);
 // 0 nao consumiu; 1 consumiu; 2 consumiu E o player deve mostrar os controles
 // (e o BAIXO: tira o painel do caminho e devolve a barra de tempo).
 int  posplay_evento(const SDL_Event *e);

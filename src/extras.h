@@ -78,6 +78,10 @@ int  extras_n_comentarios_ep(void);
 // "carregando" em vez de "nao ha comentarios" — os dois estados sao a lista
 // vazia, e confundi-los faz o episodio parecer sem comentario nenhum.
 int  extras_comentarios_ep_carregando(void);
+
+// 1 enquanto a busca de extras esta no ar. Quem desenha usa para mostrar
+// esqueleto em vez de secao vazia.
+int  extras_carregando(void);
 const char *extras_comentario_ep_usuario(int i);
 const char *extras_comentario_ep_texto(int i);
 int  extras_comentario_ep_curtidas(int i);

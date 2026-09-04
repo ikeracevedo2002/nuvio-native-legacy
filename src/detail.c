@@ -210,6 +210,16 @@ static int elencoCarregando(void) {
   return !ehSerie() && ci && ci->nElenco == 0 && desc_episodios_carregando(idx);
 }
 
+// Mesma ideia para as RECOMENDACOES do filme: a secao existe e esta vazia
+// porque o Trakt ainda nao respondeu, nao porque nao ha o que mostrar. Sem
+// isto a pagina reservava altura zero e o bloco inteiro nascia do nada quando
+// a resposta chegava, empurrando o que estava embaixo sob o controle remoto.
+static void desenhaEsqueletoRelacionados(float y, float a);
+
+static int relacionadosCarregando(void) {
+  return !ehSerie() && extras_n_relacionados() == 0 && extras_carregando();
+}
+
 static void recalcularLayout(void) {
   int r;
   if (ehSerie()) {
@@ -253,7 +263,8 @@ static void recalcularLayout(void) {
       // Secao ausente nao ocupa altura — salvo o ELENCO enquanto o meta do
       // filme carrega: a fileira reserva o lugar e recebe o esqueleto, para a
       // pagina nao pular quando os atores chegarem.
-      if (secaoN(r) <= 0 && !(r == SEC_ELENCO && elencoCarregando())) continue;
+      if (secaoN(r) <= 0 && !(r == SEC_ELENCO && elencoCarregando()) &&
+          !(r == SEC_RELACIONADOS && relacionadosCarregando())) continue;
       if (cabecalhoDe(r)) {
         conteudoSec[r] = y + NV_DETF_CAB_H + NV_DETF_CAB_GAP;
         y = conteudoSec[r];
@@ -2786,7 +2797,12 @@ static void desenhaSecao(int r, float a, Uint32 agora) {
       case SEC_TRAILERS: desenhaTrailer(x, y, c, a); break;
       // Reaproveitam o desenho que ja servia as ABAS da serie: e o mesmo
       // conteudo, so que agora numa secao propria em vez de atras de uma aba.
-      case SEC_RELACIONADOS: if (c == 0) desenhaRelacionados(NV_DETP_X, y, a); break;
+      case SEC_RELACIONADOS:
+        if (c == 0) {
+          if (relacionadosCarregando()) desenhaEsqueletoRelacionados(y, a);
+          else                          desenhaRelacionados(NV_DETP_X, y, a);
+        }
+        break;
       case SEC_COMENTARIOS:  desenhaComentarios(NV_DETP_X, y, a); break;
       case SEC_DETALHES: desenhaDetalhes(x, y, f, a); break;
       default: desenhaElenco(x, y, c, f, a); break;
@@ -2832,6 +2848,24 @@ static void desenhaEsqueletoEpisodios(float a) {
       gfx_cor(sin1, 0.5f, 0.20f, 0.21f, 0.23f, a * 0.52f);
       gfx_cor(sin2, 0.5f, 0.20f, 0.21f, 0.23f, a * 0.52f);
     }
+  }
+}
+
+// RECOMENDACOES do filme: cinco cartazes e a linha de titulo, nas coordenadas
+// finais. Mesma regra do esqueleto de episodios — ocupa exatamente o lugar que
+// o conteudo vai ocupar, para a chegada da resposta so preencher.
+static void desenhaEsqueletoRelacionados(float y, float a) {
+  int c;
+  if (y > NV_TELA_H || y + REL_CARD_H < -40.0f) return;
+  for (c = 0; c < 5; c++) {
+    float x = NV_DETP_X + c * (REL_CARD_W + REL_CARD_GAP);
+    GfxRect card = { x, y, REL_CARD_W, REL_CARD_H };
+    GfxRect tit  = { x, y + REL_CARD_H + 12.0f, REL_CARD_W * 0.82f, 20.0f };
+    GfxRect ano  = { x, y + REL_CARD_H + 40.0f, 62.0f, 15.0f };
+    if (x + REL_CARD_W > NV_TELA_W - NV_DETP_X) break;
+    gfx_cor(card, raioCartaz(REL_CARD_W, REL_CARD_H), 0.133f, 0.133f, 0.133f, a * 0.82f);
+    gfx_cor(tit, 0.5f, 0.22f, 0.23f, 0.25f, a * 0.55f);
+    gfx_cor(ano, 0.5f, 0.20f, 0.21f, 0.23f, a * 0.45f);
   }
 }
 

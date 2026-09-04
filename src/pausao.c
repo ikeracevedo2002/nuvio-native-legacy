@@ -25,7 +25,9 @@
 #define PAUSAO_LD_SIN     40.0f
 #define PAUSAO_SIN_LINHAS     2
 #define PAUSAO_PAD        32.0f
-#define PAUSAO_RAIO       28.0f
+// Opacidade do veu. Fraca de proposito: e "uma leve gradacao bem minima", nao
+// um painel. Acima de ~0.6 volta a parecer o cartao solido que foi recusado.
+#define PAUSAO_VEU_A       0.55f
 // Teto: acima disto o painel entraria na zona de overscan do topo.
 #define PAUSAO_TETO       96.0f
 #define PAUSAO_CHIP_H     44.0f
@@ -181,14 +183,17 @@ void pausao_desenhar(Uint32 agora, float baseY) {
   y = baseY - alt + sobe;
   if (y < PAUSAO_TETO) y = PAUSAO_TETO;
 
-  // FUNDO PROPRIO, SOLIDO, e nao so o gradiente do rodape. O gradiente e forte
-  // embaixo e quase nada em cima, e o painel vive justamente em cima dele: numa
-  // cena clara (medido com um filme de fundo branco) o texto ficava ilegivel,
-  // que foi o defeito relatado. Um cartao com preenchimento proprio nao depende
-  // do que esta atras.
-  { GfxRect cartao = { PAUSAO_X - PAUSAO_PAD, y - PAUSAO_PAD,
-                       larg + PAUSAO_PAD * 2.0f, alt + PAUSAO_PAD * 2.0f };
-    gfx_cor(cartao, PAUSAO_RAIO / cartao.h, 0.04f, 0.04f, 0.05f, 0.86f * a); }
+  // GRADACAO LEVE, e nao o cartao solido que esteve aqui por uma versao. O
+  // dono viu os dois e preferiu o texto direto sobre a cena: o cartao fechava
+  // um bloco preto no meio do quadro. O que sobra e um veu de baixo discreto,
+  // so o suficiente para o branco do texto ter contra o que se apoiar quando a
+  // cena e clara. A altura acompanha o bloco medido, e nao um valor fixo, para
+  // a gradacao nunca comecar acima do texto.
+  { float h = alt + PAUSAO_PAD * 2.0f;
+    float topo = y - PAUSAO_PAD;
+    if (topo + h < NV_TELA_H) h = NV_TELA_H - topo;
+    { GfxRect veu = { 0, topo, NV_TELA_W, h };
+      gfx_rect(veu, 0, GFX_VEU_BAIXO, 0, 0, 0, 0.0f, 0, 0, 0, PAUSAO_VEU_A * a); } }
 
   txt_desenhar_alpha(lKick, PAUSAO_X, y, a * 0.62f);
   y += lKick.h + 10.0f;

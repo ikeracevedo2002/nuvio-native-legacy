@@ -14,7 +14,9 @@
 
 // Constantes do web 1.0.6 (postPlayRecommendationController), nao escolhidas
 // aqui: 90% para filme, 5 s de contagem final.
-#define PP_FILME_PCT      0.90
+// Trocado pelo tempo restante: ver a nota em posplay_atualizar. Fica registrado
+// que o web usa 90% para nao parecer que o numero se perdeu.
+#define PP_FILME_FIM_S    180.0
 #define PP_CONTAGEM_S     5
 
 // Cartazes dos relacionados, no tamanho da grade de "Ver tudo".
@@ -64,6 +66,21 @@ int posplay_pediu_episodio(int *t, int *e) {
 }
 int posplay_pediu_titulo(void) { int v = pedTitulo; pedTitulo = -1; return v; }
 
+// Abertura A PEDIDO, pelo botao do player. Existe porque dispensar passou a
+// grudar: sem uma porta de volta, quem apertasse Voltar uma vez nao veria mais
+// os relacionados naquele filme. Limpa a dispensa de proposito — o pedido
+// explicito vale mais que a recusa anterior.
+int posplay_abrir_relacionados(int idxCatalogo) {
+  if (extras_n_relacionados() <= 0) return 0;
+  idx = idxCatalogo;
+  serie = 0;
+  foco = 0;
+  fecharEm = 0;
+  dispensado = 0;
+  visivel = 1;
+  return 1;
+}
+
 // O episodio SEGUINTE ao que esta tocando, na lista unica (ja ordenada por
 // temporada e episodio). Devolve 0 quando o que toca e o ultimo.
 static int acharProximo(int idxItem, int t, int e) {
@@ -97,7 +114,20 @@ void posplay_atualizar(float dt, Uint32 agora, double posSeg, double durSeg,
     // util; comecar a contar cedo tiraria do dono o fim do episodio.
     deveAparecer = janelaSerie;
   } else {
-    deveAparecer = (posSeg / durSeg) >= PP_FILME_PCT;
+    // FILME: os ultimos minutos, e nao os 90% do web.
+    //
+    // O dono viu o painel subir ANTES dos creditos e pediu "o marcador correto
+    // de onde comecam os creditos". ELE NAO EXISTE PARA FILME, e e melhor
+    // dizer isso do que fingir: o unico marcador deste app vem do introdb, que
+    // e pedido em player.c:222 SO para serie e cuja API exige temporada e
+    // episodio (intro.c:28). Filme nunca teve segmento nenhum.
+    //
+    // Entao a regra do web e trocada por uma que erra menos. 90% de um filme de
+    // 105 min sao dez minutos antes do fim — foi o que apareceu cedo demais.
+    // Os creditos finais raramente passam de tres minutos, e um painel que sobe
+    // dentro deles incomoda menos do que um que rouba o desfecho.
+    double resta = durSeg - posSeg;
+    deveAparecer = (resta > 0.0 && resta <= (double)PP_FILME_FIM_S);
   }
 
   // Saiu da zona (o dono voltou o filme): a dispensa perde a validade e o
