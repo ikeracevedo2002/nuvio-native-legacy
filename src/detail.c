@@ -2968,32 +2968,6 @@ static void desenhaPessoa(float a) {
     } }
 }
 
-// O retrato do diretor pertence ao detalhe, não ao hero da home. A foto do
-// TMDB entra sobre o backdrop com o mesmo tratamento editorial do renderer e
-// recua quando o documento rola; a arte horizontal continua sendo a base.
-static void desenhaDiretorDetalhe(const CatItem *ci, float a, float pg) {
-  const char *foto;
-  GLuint tex;
-  GfxRect r;
-  if (!ci || ehSerie() || !ci->direcao[0] || a <= 0.005f) return;
-  diretor_pedir(ci->direcao);
-  foto = diretor_foto(ci->direcao);
-  if (!foto[0]) return;
-  // O retrato ocupa menos que um hero full-bleed, mas e exibido grande na TV.
-  // Pedir pelo tamanho da coluna evita ampliar um w500 borrado sem reservar
-  // os ~2K de uma capa horizontal.
-  tex = tex_obter_larg(foto, 960.0f);
-  if (!tex) return;
-  // Caixa vertical real: a proporcao da foto fica sob responsabilidade do
-  // shader GFX_RETRATO, que ancora a imagem na direita e dissolve as bordas.
-  // A caixa mais alta deixa o rosto respirar e evita a aparencia de retrato
-  // comprimido dentro de um banner largo.
-  r = (GfxRect){ 1080.0f, 0.0f, 840.0f, 930.0f };
-  gfx_tex_aspect_atual = tex_aspecto(foto);
-  gfx_rect(r, tex, GFX_RETRATO, 0, 0, 0, 0, 0, 0, 0,
-           a * (1.0f - 0.82f * pg));
-  gfx_tex_aspect_atual = 0.0f;
-}
 
 void detail_desenhar(Uint32 agora) {
   if (!aberto) return;
@@ -3055,7 +3029,6 @@ void detail_desenhar(Uint32 agora) {
   desenhaArteDetalhe(alvo, tex, arte, artePoster,
                      tex ? aEntrada * (1.0f - 0.85f * pg) : 1.0f, pg);
 
-  desenhaDiretorDetalhe(cat_item(idx), aEntrada, pg);
 
   // O hero ROLA com o documento: ele nao some nem e substituido por um
   // cabecalho fixo. Era isso que fazia a pagina do port parecer outra tela em
