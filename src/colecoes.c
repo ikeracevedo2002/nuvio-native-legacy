@@ -1,5 +1,6 @@
 #include "colecoes.h"
 #include "js.h"
+#include "addons.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,19 @@ static void localiza(char *value,size_t cap,const char *dir) {
   char rel[600];snprintf(rel,sizeof rel,"%s",value);snprintf(value,cap,"%s/%s",dir,rel);
 }
 int col_n(void) { return count; }
-const ColFolder *col_folder(int i) { return i>=0&&i<count?&folders[i]:NULL; }
+// Fonte da conta vem com addonId e sem URL; a URL so existe depois que a sonda
+// leu o manifesto daquele addon. Resolver no acesso deixa a pasta pronta assim
+// que a sonda passar, sem ninguem precisar avisar.
+static void resolverBases(ColFolder *v) {
+  for (int s = 0; s < v->nSources; s++)
+    if (!v->sources[s].base[0] && v->sources[s].addonId[0])
+      snprintf(v->sources[s].base, sizeof v->sources[s].base, "%s", addons_base_por_id(v->sources[s].addonId));
+}
+const ColFolder *col_folder(int i) {
+  if (i < 0 || i >= count) return NULL;
+  resolverBases(&folders[i]);
+  return &folders[i];
+}
 int col_grupo(const char *name,int *indices,int max) {
   int n=0;for(int i=0;i<count&&n<max;i++) if(!strcasecmp(name,folders[i].group)) indices[n++]=i;return n;
 }
@@ -128,13 +141,16 @@ static void lerColecaoWeb(const char *c, const char *ce) {
       if (prov[0] && strcasecmp(prov, "addon")) continue;
       if (!js_texto(s, se, "addonBaseUrl", a->base, sizeof a->base)) js_texto(s, se, "addon_base_url", a->base, sizeof a->base);
       tirarManifest(a->base);
+      js_texto(s, se, "addonId", a->addonId, sizeof a->addonId);
+      if (!a->base[0]) snprintf(a->base, sizeof a->base, "%s", addons_base_por_id(a->addonId));
       js_texto(s, se, "type", a->type, sizeof a->type);
       if (!js_texto(s, se, "catalogId", a->catId, sizeof a->catId)) js_texto(s, se, "catalog_id", a->catId, sizeof a->catId);
       if (!js_texto(s, se, "title", a->title, sizeof a->title) && !js_texto(s, se, "catalogName", a->title, sizeof a->title))
         snprintf(a->title, sizeof a->title, "%s", a->catId);
       js_texto(s, se, "genre", a->genre, sizeof a->genre);
       if (!strcmp(a->genre, "None")) a->genre[0] = 0;
-      if (a->base[0] && a->type[0] && a->catId[0]) v->nSources++;
+      // Sem base MAS com addonId entra: a base chega quando a sonda ler o manifesto.
+      if ((a->base[0] || a->addonId[0]) && a->type[0] && a->catId[0]) v->nSources++;
     }
     if (v->nSources && v->title[0]) count++;
   }

@@ -2,7 +2,7 @@
 #define NV_COLECOES_H
 #define COL_MAX 256
 #define COL_SOURCE_MAX 32
-typedef struct { char title[128], base[600], type[8], catId[96], genre[96]; } ColSource;
+typedef struct { char title[128], base[600], type[8], catId[96], genre[96]; char addonId[96]; } ColSource;
 typedef struct {
   char id[96], title[128], group[64], cover[512], hero[512], logo[512];
   char groupId[64];   /* id da colecao no web; a chave de ordem da conta e collection_<groupId> */

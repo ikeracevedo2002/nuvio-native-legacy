@@ -28,6 +28,7 @@ static struct {
   char nome[64]; char base[600];
   int fonte, catalogo, legenda;
   int ativo, sondado;
+  char id[96];   // "id" do manifesto; as colecoes da conta apontam para ele
 } addon[ADD_MAX];
 static int nAddon;
 static _Atomic AddEstado estado = ADD_PARADO;
@@ -439,6 +440,14 @@ static void capacidadesDoManifesto(int i, const char *corpo) {
   const char *r = strstr(corpo, "\"resources\"");
   int cat = 0, str = 0, leg = 0;
   if (!r) return;
+  // Pular a CHAVE e ir ao valor. MEDIDO na TV: js_fim sobre a aspa de
+  // "resources" devolve o proprio ponteiro, o trecho ficava vazio e TODO addon
+  // virava catalogo=0 stream=0 legenda=0 — a primeira busca de fontes (antes
+  // da sonda) achava 38, e a partir da segunda nenhum addon era consultado.
+  r = strchr(r + 11, ':');
+  if (!r) return;
+  r++;
+  while (*r == ' ' || *r == '\n' || *r == '\t') r++;
   // O campo aceita duas formas no protocolo Stremio: lista de strings
   // ("catalog") e lista de objetos ({"name":"stream",...}). Procurar o NOME
   // solto cobre as duas sem escrever dois analisadores.
@@ -456,6 +465,7 @@ static void capacidadesDoManifesto(int i, const char *corpo) {
   addon[i].fonte    = str;
   addon[i].legenda  = leg;
   addon[i].sondado  = 1;
+  js_texto(corpo, NULL, "id", addon[i].id, sizeof addon[i].id);
   { char nome[64];
     if (js_texto(corpo, NULL, "name", nome, sizeof nome) && nome[0])
       snprintf(addon[i].nome, sizeof addon[i].nome, "%s", nome); }
@@ -657,4 +667,15 @@ void addons_encerrar(void) {
   pthread_mutex_unlock(&legTrava);
   free(resultado); resultado = NULL; nResultado = 0;
   estado = ADD_PARADO;
+}
+
+// As fontes de colecao da conta trazem addonId (o "id" do manifesto), nao a
+// URL. So a sonda sabe o id, entao a resposta e vazia ate ela passar por
+// aquele addon — quem chama tenta de novo depois.
+const char *addons_base_por_id(const char *id) {
+  int i;
+  if (!id || !*id) return "";
+  for (i = 0; i < nAddon; i++)
+    if (addon[i].id[0] && !strcmp(addon[i].id, id)) return addon[i].base;
+  return "";
 }

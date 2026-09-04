@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+const char *addons_base_por_id(const char *id) { return id && !strcmp(id, "org.x") ? "https://resolvido" : ""; }
 int main(void) {
   const char *web =
     "[{\"collections_json\":{\"collections\":[{\"id\":\"c1\",\"title\":\"Streaming\",\"backdropImageUrl\":\"https://img/bg.jpg\","
@@ -33,6 +34,10 @@ int main(void) {
   // vazio nao apaga
   assert(col_definir_json("{\"collections\":[]}") == 0 && col_n() == 1);
   puts("ok  vazio mantem o que havia");
+  // fonte so com addonId (como a conta manda): entra, e a base resolve no acesso
+  assert(col_definir_json("{\"collections\":[{\"id\":\"c\",\"title\":\"T\",\"folders\":[{\"id\":\"g\",\"title\":\"G\",\"sources\":[{\"provider\":\"addon\",\"addonId\":\"org.x\",\"type\":\"movie\",\"catalogId\":\"k\"}]}]}]}") == 1);
+  assert(!strcmp(col_folder(0)->sources[0].base, "https://resolvido"));
+  puts("ok  addonId sem URL resolve pela sonda");
   puts("colecoes: tudo ok");
   return 0;
 }

@@ -9,6 +9,7 @@ char *dados_ler(const char *nome) { (void)nome; return NULL; }
 int   dados_gravar(const char *nome, const char *c) { (void)nome; (void)c; return 1; }
 int   dados_apagar(const char *nome) { (void)nome; return 1; }
 int   perfis_ativo(void) { return 1; }
+const char *addons_base_por_id(const char *id) { (void)id; return ""; }
 
 int main(void) {
   assert(MAX_FIL <= FOCUS_MAX_FILEIRAS);
