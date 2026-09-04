@@ -1,5 +1,6 @@
 #include "descoberta.h"
 #include "idioma.h"
+#include "ajustes.h"
 #include "catordem.h"
 #include "marco.h"
 #include <SDL2/SDL.h>
@@ -91,6 +92,9 @@ const char *desc_chave_tmdb(void) { return tmdbChave; }
 // e uma viagem de rede por titulo para traduzir duas palavras seria absurdo.
 // Genero fora da tabela sai como veio — melhor o ingles que um buraco.
 const char *desc_genero_pt(const char *g) {
+  // Interface em ingles: o genero do Cinemeta JA e ingles, e traduzir para
+  // portugues so para nao ter como voltar seria o bug ao contrario.
+  if (ajustes_idioma_ingles()) return g;
   static const struct { const char *en, *pt; } T[] = {
     { "Action",      "Ação" },          { "Adventure",   "Aventura" },
     { "Animation",   "Animação" },      { "Biography",   "Biografia" },
@@ -556,7 +560,7 @@ static int deMeta(const char *ini, const char *fim, const char *tipo, CatItem *d
         } }
     }
     snprintf(d->genero, sizeof d->genero, "%s%s%s%s%s",
-             strcmp(tipo, "series") ? "Filme" : "Programa de TV",
+             i18n(strcmp(tipo, "series") ? "Filme" : "Programa de TV"),
              g1[0] ? "  \xc2\xb7  " : "", g1,
              g2[0] ? "  \xc2\xb7  " : "", g2);
   }
@@ -712,7 +716,7 @@ static int desligada(const Decl *d) {
 // maiuscula e, se o nome ja NAO termina com o rotulo do tipo, " - <tipo>".
 // E por isso que a home mostra "For You - Filme" e nao "for you".
 static void formatarTitulo(const char *nome, const char *tipo, char *dst, size_t tam) {
-  const char *rotulo = strcmp(tipo, "series") ? "Filme" : "S\xc3\xa9rie";
+  const char *rotulo = i18n(strcmp(tipo, "series") ? "Filme" : "S\xc3\xa9rie");
   const char *cru    = strcmp(tipo, "series") ? "Movie" : "Series";
   size_t ln = strlen(nome), lr = strlen(rotulo), lc = strlen(cru);
   int jaTem = 0;

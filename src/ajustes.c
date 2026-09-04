@@ -12,6 +12,7 @@
 // (js/ui/screens/settings/settingsScreen.js), inclusive os rotulos em portugues
 // lidos da tela rodando.
 #include "ajustes.h"
+#include "descoberta.h"
 #include "idioma.h"
 #include "linguas.h"
 #include "addons.h"
@@ -870,6 +871,9 @@ void ajustes_evento(const SDL_Event *e) {
       // e desenhar o rotulo deixaria o ajuste bonito e inerte, que foi
       // exatamente o defeito do seletor de idioma da interface.
       if (focoOp == AJ_LEG_LINGUA || focoOp == AJ_AUD_LINGUA) aplicarIdioma(focoOp);
+      // O rotulo de tipo e os generos das fileiras sao montados na entrada do
+      // catalogo, ja no idioma da interface; trocar o idioma remonta.
+      if (focoOp == AJ_IDIOMA) desc_repetir();
     }
     gravar();   // grava a cada mudanca: nao ha botao de "salvar" nesta tela
   }

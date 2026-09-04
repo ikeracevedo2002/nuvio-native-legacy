@@ -1486,8 +1486,8 @@ void home_desenhar(Uint32 agora) {
         const char *corte = strstr(rotFil, " - ");
         const char *ultimo = NULL;
         while (corte) { ultimo = corte; corte = strstr(corte + 3, " - "); }
-        if (ultimo && (!strcmp(ultimo + 3, "Filme")
-                       || !strcmp(ultimo + 3, "S\xc3\xa9rie"))) {
+        if (ultimo && (!strcmp(ultimo + 3, "Filme") || !strcmp(ultimo + 3, "S\xc3\xa9rie")
+                       || !strcmp(ultimo + 3, i18n("Filme")) || !strcmp(ultimo + 3, i18n("S\xc3\xa9rie")))) {
           size_t n = (size_t)(ultimo - rotFil);
           if (n >= sizeof semSufixo) n = sizeof semSufixo - 1;
           memcpy(semSufixo, rotFil, n);
