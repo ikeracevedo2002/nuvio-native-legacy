@@ -24,6 +24,8 @@ Por isso: **corpo sem link nenhum.** Estes vão no PRIMEIRO COMENTÁRIO:
 
 - Código: https://github.com/iqui27/nuvio-native-legacy
 - Download (.ipk, 175 MB): https://github.com/iqui27/nuvio-native-legacy/releases/tag/v1.0.1
+- Build web (webOS 5+): https://github.com/iqui27/NuvioTVSmart-legacy-webos — release webos-port-1.0.5
+- **O SEU outro post do app web** — cole o link aqui, o corpo diz "Link in the comments"
 
 Se cair mesmo assim, **modmail** pedindo aprovação — o post fica na fila de
 filtrados, não some.
@@ -55,11 +57,11 @@ Over the past weeks I ported a webOS streaming app from its JavaScript/Chromium
 build to a native C app on SDL2 + GLES2. It runs on a 2019 LG C9 (webOS 4.10).
 
 **Where it landed:** 60.0 fps, 0 janks on the home screen, worst frame 18-19 ms.
-Video plays through the TV's own pipeline (LS2 → `com.webos.media` + libAcbAPI),
+Video plays through the TV's own pipeline (LS2 -> `com.webos.media` + libAcbAPI),
 not through a browser.
 
 The clip is a screen recording of the same code running on macOS, so it shows
-the UI only — 7194 frames in 119.98 s, 59.96 fps measured. Reddit re-encodes
+the UI only - 7194 frames in 119.98 s, 59.96 fps measured. Reddit re-encodes
 video, so the number is here rather than left for you to count.
 
 **What it does now**
@@ -68,26 +70,34 @@ video, so the number is here rather than left for you to count.
 - Multiple profiles, with the PIN checked server-side
 - Addons, layout settings, TMDB key and watch progress all come from the account
 - Trakt linked from the TV itself, through Trakt's device-code flow
-- Continue Watching, library, search, settings
+- Continue Watching, library, search, collections, director pages, settings
+
+**Which one you want**
+
+This native build targets webOS 4.x. Its video path uses libAcbAPI, which LG
+removed in webOS 5 - on a newer TV the app starts, the UI runs, and nothing
+plays. If your set is webOS 5 or later, the one you want is the web build,
+which I posted separately; it is plain JS, has no such dependency, and I have
+run it on webOS 5. Link in the comments.
 
 **Things I learned the hard way, in case they save someone time**
 
 - The TV's video lives on a *hardware plane behind* the GL surface, revealed
   through an alpha hole. `glReadPixels` and the TV's own capture service never
-  see it — a screenshot during playback comes out fully black. That's the model,
+  see it - a screenshot during playback comes out fully black. That's the model,
   not a bug, and it costs an afternoon if you don't know.
 - `StarfishMediaAPIs` calls `exit(0)` when the process doesn't match the
-  `exeName` in its LS2 role. Not a crash — atexit runs and the journal stays
+  `exeName` in its LS2 role. Not a crash - atexit runs and the journal stays
   silent. Talking to `com.webos.media` over LS2 directly is what actually works.
 - When SAM launches a native app, stdout and stderr go to `/dev/null`. Every
   printf is discarded until you `freopen` a log file.
-- The Back button never arrives as a key. It shows up as FOCUS_LOST →
+- The Back button never arrives as a key. It shows up as FOCUS_LOST ->
   FOCUS_GAINED within a few ms, because the compositor swallows it. Real exit
   (Home) is FOCUS_LOST with no return, and that's what separates the two.
 - Don't link libcurl. The SDK ships `.so.4`, the TV only has `.so.5`, and the
   binary won't even start. `dlopen` at runtime, trying both.
 - A `.ipk` is a Debian package. `tar tzf pkg.ipk` lists exactly three names
-  without error and never the app files — so a "did my secret leak?" check
+  without error and never the app files - so a "did my secret leak?" check
   written that way passes every time, including when it did.
 
 **Honest limits**
@@ -97,10 +107,18 @@ video, so the number is here rather than left for you to count.
   `com.webos.media`, and I have not verified that a non-rooted install grants
   it. If it doesn't, expect the UI to run and video to be a black screen. If
   anyone tries it on a non-rooted TV I would genuinely like to know.
-- The package is 172 MB, most of it prebaked artwork I still need to strip.
+- The package is 175 MB, most of it prebaked artwork I still need to strip.
 - Developer Mode sessions expire every 50 hours. LG's limit, not mine.
 
-Happy to answer anything about the webOS side — the pipeline, the LS2 roles, or
+**Where this is going**
+
+I'm still working on it and I'll keep pushing builds, so if you want to try it
+and tell me what breaks, that is genuinely useful - bug reports from this thread
+have already turned into fixes. I'm also open to other platforms: the rendering
+is plain C99 + SDL2 + GLES2 with no webOS assumptions above the video layer, so
+another target is mostly a new video backend. Say which one you'd want.
+
+Happy to answer anything about the webOS side - the pipeline, the LS2 roles, or
 the SDL/GLES setup on a TV this old.
 
 ---
