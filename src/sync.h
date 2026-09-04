@@ -106,7 +106,8 @@ void sync_reaplicar_ajustes(void);
 // Existe por causa do Trakt: a conta do dono nao tinha a linha `trakt`, entao
 // vincular na TV nao ajudava o celular. Vincular aqui passa a ESCREVER na
 // conta, que e o que o app web faz.
-void sync_empurrar_credencial(const char *provider, const char *credJson);
+// 1 quando a conta aceitou; 0 quando nao (quem chama decide se tenta depois).
+int  sync_empurrar_credencial(const char *provider, const char *credJson);
 
 void sync_encerrar(void);
 

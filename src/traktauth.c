@@ -4,6 +4,7 @@
 #include "rede.h"
 #include "trakt.h"
 #include "sync.h"
+#include "sessao.h"
 #include "descoberta.h"
 #include "js.h"
 #include "jsw.h"
@@ -36,6 +37,8 @@ static int fioVivo, fioPronto;
 // 1 quando o fio acabou de conseguir o token e o laco principal ainda nao o
 // aplicou. Aplicar dentro do fio mexeria em trakt.c enquanto a UI le dele.
 static int tokenNovo;
+static long criadoEm, expiraSeg;   // do token: o web exige os dois na conta
+static int  pushPendente;          // a conta ainda nao tem este token (push falhou ou nunca saiu)
 
 static char *postar(const char *caminho, const char *corpo, int *status) {
   char completo[300];
@@ -72,18 +75,28 @@ static void gravar(void) {
   // Mesmo formato do art/trakt.txt de antes ("token<TAB>clientId"), para o
   // arquivo continuar legivel por quem ja conhecia o de la. A diferenca e o
   // LUGAR: aqui e a pasta da instalacao, nao o pacote.
-  snprintf(buf, sizeof buf, "%s\t%s\n", token, nuvem_trakt_cliente());
+  // Colunas 3-6 (refresh, created_at, expires_in, pendente) sao novas: sem o
+  // refresh guardado o token nao pode ser reenviado a conta depois de um
+  // reinicio, e o push falhado ficava perdido para sempre.
+  snprintf(buf, sizeof buf, "%s\t%s\t%s\t%ld\t%ld\t%d\n", token, nuvem_trakt_cliente(),
+           refresh, criadoEm, expiraSeg, pushPendente);
   dados_gravar(TRA_ARQ, buf);
 }
 
 int traktauth_carregar(void) {
   char *b = dados_ler(TRA_ARQ);
-  char *tab;
+  char *col[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
   if (!b) return 0;
-  tab = strchr(b, '\t');
-  if (tab) *tab = 0;
   { char *fim = b + strlen(b);
     while (fim > b && (fim[-1] == '\n' || fim[-1] == '\r')) *--fim = 0; }
+  { int i; col[0] = b;
+    for (i = 1; i < 6 && col[i - 1]; i++) { col[i] = strchr(col[i - 1], '\t'); if (col[i]) *col[i]++ = 0; } }
+  if (col[2]) snprintf(refresh, sizeof refresh, "%s", col[2]);
+  criadoEm  = col[3] ? atol(col[3]) : 0;
+  expiraSeg = col[4] ? atol(col[4]) : 0;
+  // Arquivo antigo (2 colunas) nao diz se a conta recebeu: assume que nao e
+  // tenta uma vez — o servidor responde, e a resposta fica no log.
+  pushPendente = col[5] ? atoi(col[5]) : 1;
   if (b[0]) {
     snprintf(token, sizeof token, "%s", b);
     trakt_definir(token, nuvem_trakt_cliente());
@@ -203,6 +216,11 @@ static void *fioPoll(void *u) {
       // que o access token vencer e o app web nao teria como renovar.
       if (!js_texto(r, r + strlen(r), "refresh_token", refresh, sizeof refresh))
         refresh[0] = 0;
+      // O web guarda created_at e expires_in na conta e e por eles que decide
+      // renovar. Sem os dois o servidor recusa a linha (HTTP 400) e o vinculo
+      // fica so nesta TV.
+      criadoEm  = (long)js_num(r, r + strlen(r), "created_at", (double)time(NULL));
+      expiraSeg = (long)js_num(r, r + strlen(r), "expires_in", 86400);
       tokenNovo = 1;
       esquecerFluxo();
       estado = TRA_LIGADO;
@@ -237,6 +255,24 @@ static void *fioPoll(void *u) {
   return NULL;
 }
 
+// Manda o token para a CONTA, para os outros aparelhos da pessoa herdarem o
+// vinculo. A forma do credential_json e a do app web (credentialJsonFromState):
+// access_token, refresh_token, token_type, created_at, expires_in.
+static void empurrarParaConta(void) {
+  Jsw c;
+  if (!token[0] || !sessao_logada()) return;
+  jsw_iniciar(&c);
+  jsw_obj_ini(&c);
+  jsw_cs(&c, "access_token", token);
+  if (refresh[0]) jsw_cs(&c, "refresh_token", refresh);
+  jsw_cs(&c, "token_type", "bearer");
+  jsw_ci(&c, "created_at", (int)(criadoEm ? criadoEm : (long)time(NULL)));
+  jsw_ci(&c, "expires_in", (int)(expiraSeg > 0 ? expiraSeg : 86400));
+  jsw_obj_fim(&c);
+  if (sync_empurrar_credencial("trakt", jsw_texto_final(&c))) { pushPendente = 0; gravar(); }
+  jsw_livre(&c);
+}
+
 static void soltar(void *(*rotina)(void *)) {
   if (fioVivo) return;
   fioPronto = 0;
@@ -256,25 +292,19 @@ void traktauth_comecar(void) {
 void traktauth_passo(unsigned agoraMs) {
   if (fioVivo && fioPronto) { fioVivo = 0; fioPronto = 0; }
   if (fioVivo) return;
+  // Token que a conta ainda nao tem (push falhou, ou veio de um arquivo antigo):
+  // uma tentativa por ciclo de sync concluido, nunca em laco.
+  { static unsigned ultimaTentativa;
+    if (pushPendente && token[0] && estado == TRA_LIGADO && sync_estado() == SYNC_PRONTO
+        && agoraMs - ultimaTentativa > 60000u) { ultimaTentativa = agoraMs; empurrarParaConta(); } }
 
   // Aplicar o token no LACO PRINCIPAL, nunca no fio: trakt.c e lido pela UI.
   if (tokenNovo) {
     tokenNovo = 0;
     trakt_definir(token, nuvem_trakt_cliente());
+    pushPendente = 1;
+    empurrarParaConta();
     gravar();
-    // E manda para a CONTA, para os outros aparelhos da pessoa herdarem o
-    // vinculo — e a linha `trakt` que hoje nao existe la.
-    { // A forma do credential_json e a que o app web grava, para os dois lados
-      // lerem a mesma coisa.
-      Jsw c;
-      jsw_iniciar(&c);
-      jsw_obj_ini(&c);
-      jsw_cs(&c, "access_token", token);
-      if (refresh[0]) jsw_cs(&c, "refresh_token", refresh);
-      jsw_cs(&c, "token_type", "bearer");
-      jsw_obj_fim(&c);
-      sync_empurrar_credencial("trakt", jsw_texto_final(&c));
-      jsw_livre(&c); }
     // O catalogo foi montado SEM Trakt: continuar assistindo, "entre amigos" e
     // as listas dele nao existem nas fileiras que estao na tela. Sem esta
     // remontagem, vincular so tinha efeito visivel no proximo arranque.

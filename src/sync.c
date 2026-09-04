@@ -472,11 +472,11 @@ const char *sync_resumo(void)      { return resumo; }
 unsigned    sync_ultimo_ok(void)   { return ultimoOk; }
 void        sync_sujar_progresso(void) { sujoProgresso = 1; }
 void        sync_sujar_addons(void)    { sujoAddons = 1; }
-void sync_empurrar_credencial(const char *provider, const char *credJson) {
+int sync_empurrar_credencial(const char *provider, const char *credJson) {
   Jsw w;
   char *r;
-  int st = 0;
-  if (!sessao_logada() || !provider || !*provider || !credJson || !*credJson) return;
+  int st = 0, ok;
+  if (!sessao_logada() || !provider || !*provider || !credJson || !*credJson) return 0;
   jsw_iniciar(&w);
   jsw_obj_ini(&w);
   jsw_ci(&w, "p_profile_id", perfis_ativo());
@@ -492,9 +492,11 @@ void sync_empurrar_credencial(const char *provider, const char *credJson) {
   jsw_obj_fim(&w);
   r = sessao_rpc("sync_push_provider_credentials", jsw_texto_final(&w), &st);
   jsw_livre(&w);
-  if (!ok2xx(r, st)) printf("[sync] push de credencial %s falhou (HTTP %d)\n", provider, st);
+  ok = ok2xx(r, st);
+  if (!ok2xx(r, st)) printf("[sync] push de credencial %s falhou (HTTP %d): %.200s\n", provider, st, r ? r : "");
   else printf("[sync] credencial %s guardada na conta\n", provider);
   free(r);
+  return ok;
 }
 
 void sync_reaplicar_ajustes(void) { aplicarAjustes = 1; }
