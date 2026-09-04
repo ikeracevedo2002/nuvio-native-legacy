@@ -13,6 +13,7 @@
 // lidos da tela rodando.
 #include "ajustes.h"
 #include "linguas.h"
+#include "addons.h"
 #include "gfx.h"
 #include "text.h"
 #include "tex_cache.h"
@@ -73,7 +74,7 @@ typedef enum {
   // Interface
   AJ_IDIOMA, AJ_ANIM,
   // Conta
-  AJ_PERFIL_ATIVO, AJ_SYNC, AJ_TRAKT, AJ_SIMKL, AJ_SAIR,
+  AJ_PERFIL_ATIVO, AJ_SYNC, AJ_ADDONS, AJ_TRAKT, AJ_SIMKL, AJ_SAIR,
   // Sobre
   AJ_VERSAO_I, AJ_ESPACO,
   AJ_N
@@ -194,6 +195,7 @@ static const Opcao OPCOES[AJ_N] = {
 
   LER("Perfil"),
   LER("Sincronização"),
+  ACAO("Addons"),
   ACAO("Trakt"),
   ACAO("Simkl"),
   ACAO("Sair da conta"),
@@ -229,7 +231,7 @@ static const char *CHAVE[] = {
   "posterCardWidthDp", "posterCardCornerRadiusDp",
   "idioma", "animacoes",
   // Conta: sao linhas locais, nao vem nem vao para o perfil na nuvem.
-  "-perfil", "-sync", "-trakt", "-simkl", "-sair",
+  "-perfil", "-sync", "-addons", "-trakt", "-simkl", "-sair",
   "-versao", "-espaco",
 };
 
@@ -255,7 +257,7 @@ static const struct { const char *titulo; int ini, n; } SECOES[] = {
   { "Efeito de Profundidade",         AJ_PROF,                9 },
   { "Tamanho dos itens",              AJ_LARGURA_DP,          2 },
   { "Interface",                      AJ_IDIOMA,              2 },
-  { "Conta",                          AJ_PERFIL_ATIVO,        5 },
+  { "Conta",                          AJ_PERFIL_ATIVO,        6 },
   { "Sobre",                          AJ_VERSAO_I,            2 },
 };
 #define AJ_N_SECOES (int)(sizeof SECOES / sizeof *SECOES)
@@ -326,6 +328,12 @@ static int valor[AJ_N] = {
   1, 0,             /* idioma, animacoes */
   0, 0,             /* versao, espaco */
 };
+
+// Pedido de abrir a lista de addons, lido e zerado pelo app.c. A tela nao e
+// aberta daqui porque quem troca de tela e o app.c — ajustes.c nao conhece as
+// outras telas, e ganhar essa dependencia agora era o comeco de um no.
+static int pediuAddons;
+int ajustes_pediu_addons(void) { int v = pediuAddons; pediuAddons = 0; return v; }
 
 static int focoOp = 0;
 // Uma lista de UMA coluna nao precisa do focus.h: a memoria de coluna que ele
@@ -683,6 +691,12 @@ static const char *textoLeitura(int op) {
       default:             return "conectar";
     }
   }
+  if (op == AJ_ADDONS) {
+    int i, lig = 0, n = addons_n();
+    for (i = 0; i < n; i++) if (addons_ativo(i)) lig++;
+    snprintf(buf, sizeof buf, "%d de %d", lig, n);
+    return buf;
+  }
   if (op == AJ_SAIR) return "OK";
   if (op == AJ_HERO_CATALOGOS) {
     // "Todos" com a lista vazia e o que o web escreve (common_all), e e o estado
@@ -804,6 +818,7 @@ void ajustes_evento(const SDL_Event *e) {
   else if (k == SDLK_UP)   { if (focoOp > 0)        focoOp--; }
   else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
     if (OPCOES[focoOp].tipo != OP_ACAO) return;
+    if (focoOp == AJ_ADDONS) { pediuAddons = 1; return; }
     if (focoOp == AJ_TRAKT) { traktauth_comecar(); return; }
     if (focoOp == AJ_SIMKL) { simklauth_comecar(); return; }
     if (focoOp == AJ_SAIR) {

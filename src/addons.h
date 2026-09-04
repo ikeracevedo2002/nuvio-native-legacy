@@ -62,6 +62,23 @@ void addons_buscar_legendas(const char *imdb, const char *tipo);
 int  addons_n_legendas(void);
 const Legenda *addons_legenda(int i);
 
+
+// --- lista para a tela de addons --------------------------------------------
+//
+// A conta pode ter addon DESLIGADO, e ele continua na lista: some das consultas
+// mas aparece na tela, para poder ser religado sem pegar o celular.
+enum { ADD_CATALOGO = 0, ADD_STREAM, ADD_LEGENDA };
+
+const char *addons_nome(int i);
+int  addons_ativo(int i);
+int  addons_alternar(int i);          // devolve o estado NOVO
+// O addon fornece este recurso? Ate a sonda responder e uma suposicao
+// otimista; addons_sondado() diz qual dos dois casos e.
+int  addons_fornece(int i, int oque);
+int  addons_sondado(int i);
+// Le o manifesto de cada addon num fio proprio, uma vez por lista.
+void addons_sondar_manifestos(void);
+
 AddEstado addons_estado(void);
 void addons_encerrar(void);
 

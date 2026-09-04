@@ -17,7 +17,17 @@
 // Xperience declara resources catalog/meta/subtitles e NENHUM stream, entao
 // respondia {"streams":[]} para tudo. Consultar quem nao fornece e um
 // round-trip jogado fora em CADA abertura de titulo.
-static struct { char nome[64]; char base[600]; int fonte, catalogo, legenda; } addon[ADD_MAX];
+// `ativo` existe porque a lista precisa MOSTRAR o que esta desligado. Antes, um
+// addon desligado na conta era descartado na leitura, entao nao havia como
+// ve-lo nem religa-lo pela TV — so pelo celular.
+// `sondado` diz se as capacidades vieram do MANIFESTO ou sao a suposicao
+// inicial. A diferenca importa na tela: "ainda nao sei" e diferente de "nao
+// fornece".
+static struct {
+  char nome[64]; char base[600];
+  int fonte, catalogo, legenda;
+  int ativo, sondado;
+} addon[ADD_MAX];
 static int nAddon;
 static _Atomic AddEstado estado = ADD_PARADO;
 static pthread_t fio;
@@ -92,7 +102,9 @@ int addons_definir_lista(const AddonRemoto *nova, int n) {
   }
   for (i = 0; i < n && aceitos < ADD_MAX; i++) {
     size_t k;
-    if (!nova[i].url[0] || !nova[i].ativo) continue;
+    // Addon DESLIGADO tambem entra: ele aparece na lista e pode ser religado
+    // aqui. So nao e consultado (ver ativoParaConsulta).
+    if (!nova[i].url[0]) continue;
     snprintf(addon[aceitos].nome, sizeof addon[aceitos].nome, "%s",
              nova[i].nome[0] ? nova[i].nome : "Addon");
     snprintf(addon[aceitos].base, sizeof addon[aceitos].base, "%s", nova[i].url);
@@ -104,13 +116,20 @@ int addons_definir_lista(const AddonRemoto *nova, int n) {
     // consultar todos no arranque custaria uma viagem por addon. Assumir que
     // fornece tudo faz no maximo uma consulta vazia a mais por titulo — o
     // contrario (assumir que nao fornece) esconderia fontes de verdade.
+    // Ate o manifesto responder, assume-se que fornece tudo — inclusive
+    // LEGENDA, que antes ficava em 0 e contradizia o comentario acima. O
+    // efeito de legenda=0 era pior do que uma consulta a mais: buscarLegendas
+    // pula quem nao declara legenda, entao numa conta sincronizada o
+    // OpenSubtitles nunca era consultado e nao havia legenda nenhuma.
     addon[aceitos].fonte = 1;
     addon[aceitos].catalogo = 1;
-    addon[aceitos].legenda = 0;
+    addon[aceitos].legenda = 1;
+    addon[aceitos].sondado = 0;
+    addon[aceitos].ativo = nova[i].ativo ? 1 : 0;
     aceitos++;
   }
   if (aceitos == 0) {
-    printf("[addons] a conta so tinha addons desligados; mantendo a local\n");
+    printf("[addons] a conta veio sem addons utilizaveis; mantendo a local\n");
     return 0;
   }
   nAddon = aceitos;
@@ -144,7 +163,7 @@ const char *addons_base(int i) {
 // Quarta coluna de addons.txt. Como a de stream, ausente vale 1 — arquivo
 // antigo continua funcionando, so faz uma consulta a mais que pode dar vazio.
 int addons_tem_catalogo(int i) {
-  return (i >= 0 && i < nAddon) ? addon[i].catalogo : 0;
+  return (i >= 0 && i < nAddon) ? (addon[i].ativo && addon[i].catalogo) : 0;
 }
 AddEstado addons_estado(void) {
   AddEstado e = atomic_load(&estado);
@@ -324,7 +343,7 @@ static void *buscarLegendas(void *u) {
       const char *p;
     // Addon que nao declara legenda nao e consultado: o AIOStreams responderia
     // vazio e o Xperience tambem, dois round-trips sem retorno.
-      if (!addon[i].legenda) continue;
+      if (!addon[i].ativo || !addon[i].legenda) continue;
       snprintf(url, sizeof url, "%s/subtitles/%s/%s.json",
                addon[i].base, tipo, id);
       corpo = rede_baixar(url, 25);
@@ -381,6 +400,95 @@ static void *buscarLegendas(void *u) {
     fflush(stdout);
     return NULL;
   }
+}
+
+
+// ------------------------------------------------------------ lista e sonda
+
+int addons_ativo(int i)   { return (i >= 0 && i < nAddon) ? addon[i].ativo : 0; }
+int addons_sondado(int i) { return (i >= 0 && i < nAddon) ? addon[i].sondado : 0; }
+const char *addons_nome(int i) {
+  return (i >= 0 && i < nAddon) ? addon[i].nome : "";
+}
+int addons_fornece(int i, int oque) {
+  if (i < 0 || i >= nAddon) return 0;
+  if (oque == ADD_CATALOGO) return addon[i].catalogo;
+  if (oque == ADD_STREAM)   return addon[i].fonte;
+  return addon[i].legenda;
+}
+int addons_alternar(int i) {
+  if (i < 0 || i >= nAddon) return 0;
+  addon[i].ativo = !addon[i].ativo;
+  printf("[addons] %s: %s\n", addon[i].nome, addon[i].ativo ? "ligado" : "desligado");
+  fflush(stdout);
+  return addon[i].ativo;
+}
+
+// SONDA DO MANIFESTO. Ate ela responder, o app assume que todo addon fornece
+// tudo — e essa suposicao custa no maximo uma consulta vazia. O manifesto diz a
+// verdade, e e o que a tela mostra: sem isso a lista so poderia repetir a
+// suposicao, que e o mesmo que nao informar nada.
+//
+// Roda em fio proprio e UMA vez por lista: sao N viagens, e faze-las no
+// arranque atrasaria a primeira tela por addon configurado.
+static pthread_t fioSonda;
+static int sondaViva;
+
+static void capacidadesDoManifesto(int i, const char *corpo) {
+  const char *r = strstr(corpo, "\"resources\"");
+  int cat = 0, str = 0, leg = 0;
+  if (!r) return;
+  // O campo aceita duas formas no protocolo Stremio: lista de strings
+  // ("catalog") e lista de objetos ({"name":"stream",...}). Procurar o NOME
+  // solto cobre as duas sem escrever dois analisadores.
+  { const char *fim = js_fim(r);
+    if (!fim) fim = corpo + strlen(corpo);
+    { size_t n = (size_t)(fim - r);
+      char *trecho = malloc(n + 1);
+      if (!trecho) return;
+      memcpy(trecho, r, n); trecho[n] = 0;
+      cat = strstr(trecho, "catalog")   != NULL;
+      str = strstr(trecho, "stream")    != NULL;
+      leg = strstr(trecho, "subtitles") != NULL;
+      free(trecho); } }
+  addon[i].catalogo = cat;
+  addon[i].fonte    = str;
+  addon[i].legenda  = leg;
+  addon[i].sondado  = 1;
+  { char nome[64];
+    if (js_texto(corpo, NULL, "name", nome, sizeof nome) && nome[0])
+      snprintf(addon[i].nome, sizeof addon[i].nome, "%s", nome); }
+  printf("[addons] %s: catalogo=%d stream=%d legenda=%d\n",
+         addon[i].nome, cat, str, leg);
+  fflush(stdout);
+}
+
+static void *sondar(void *u) {
+  int i;
+  (void)u;
+  for (i = 0; i < nAddon; i++) {
+    char url[700], *corpo;
+    if (addon[i].sondado) continue;
+    snprintf(url, sizeof url, "%s/manifest.json", addon[i].base);
+    corpo = rede_baixar(url, 12);
+    if (!corpo) {
+      // Sem resposta NAO vira "nao fornece nada": ficaria um addon bom apagado
+      // da lista por uma falha de rede. Fica como estava, por sondar.
+      printf("[addons] manifesto sem resposta: %s\n", addon[i].nome);
+      continue;
+    }
+    capacidadesDoManifesto(i, corpo);
+    free(corpo);
+  }
+  sondaViva = 0;
+  return NULL;
+}
+
+void addons_sondar_manifestos(void) {
+  if (sondaViva || nAddon <= 0) return;
+  sondaViva = 1;
+  if (pthread_create(&fioSonda, NULL, sondar, NULL) != 0) sondaViva = 0;
+  else pthread_detach(fioSonda);
 }
 
 void addons_buscar_legendas(const char *imdb, const char *tipo) {
@@ -472,7 +580,7 @@ static void *buscar(void *u) {
   baldes = calloc((size_t)(nAddon > 0 ? nAddon : 1), sizeof(BaldeFonte));
   if (baldes)
     for (i = 0; i < nAddon; i++)
-      if (addon[i].fonte) baldes[nBaldes++].idx = i;
+      if (addon[i].ativo && addon[i].fonte) baldes[nBaldes++].idx = i;
 
   if (baldes && nBaldes > 0) {
     pthread_t fios[ADD_FIOS];

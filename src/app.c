@@ -12,6 +12,7 @@
 //   3. menu    — camada sobre a tela corrente
 //   4. a tela corrente (home, busca, biblioteca ou ajustes)
 #include "app.h"
+#include "addonsui.h"
 #include "login.h"
 #include "sessao.h"
 #include "perfis.h"
@@ -261,6 +262,7 @@ void app_evento(const SDL_Event *e) {
     case TELA_BIBLIOTECA: biblioteca_evento(e); break;
     case TELA_PERFIL:     perfil_evento(e);     break;
     case TELA_SOCIAL:     social_evento(e);     break;
+    case TELA_ADDONS:     addonsui_evento(e);   break;
     case TELA_AJUSTES:    ajustes_evento(e);    break;
     default:              home_evento(e);       break;
   }
@@ -411,6 +413,17 @@ void app_atualizar(float dt, Uint32 agora) {
   if (tela==TELA_HOME && home_pediu_social()) {
     trocarTela(TELA_AJUSTES);menu_definir_destino(MENU_AJUSTES);
   }
+  // A lista de addons foi aberta DE Ajustes, entao o Back dela volta para
+  // Ajustes. Cair na home aqui faria a pessoa refazer o caminho inteiro so
+  // para ligar dois addons seguidos.
+  if (tela == TELA_ADDONS && addonsui_quer_sair()) {
+    trocarTela(TELA_AJUSTES); menu_definir_destino(MENU_AJUSTES);
+  }
+  if (tela == TELA_AJUSTES && ajustes_pediu_addons()) {
+    addonsui_abrir();
+    trocarTela(TELA_ADDONS);
+  }
+
   // Fora da home, o Back tem para onde voltar: a home. So nela ele fecha o app.
   if (tela != TELA_HOME) {
     int fechar = (tela == TELA_BUSCA      && busca_quer_sair())
@@ -667,6 +680,7 @@ void app_atualizar(float dt, Uint32 agora) {
   }
   perfil_atualizar(dt, agora);
   if(tela==TELA_SOCIAL) social_atualizar(dt, agora);
+  if(tela==TELA_ADDONS) addonsui_atualizar(dt, agora);
 }
 
 void app_desenhar(Uint32 agora) {
@@ -701,6 +715,7 @@ void app_desenhar(Uint32 agora) {
         case TELA_BIBLIOTECA: biblioteca_desenhar(agora); break;
         case TELA_PERFIL:     perfil_desenhar(agora);     break;
         case TELA_SOCIAL:     social_desenhar(agora);     break;
+        case TELA_ADDONS:     addonsui_desenhar(agora);   break;
         case TELA_AJUSTES:    ajustes_desenhar(agora);    break;
         default:              home_desenhar(agora);       break;
       }
