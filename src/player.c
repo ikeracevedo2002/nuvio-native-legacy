@@ -179,6 +179,12 @@ static float anim = 0.0f;          // 0..1 seguindo `visivel`, por mola
 static float focoB[PLR_NBTNS];     // mola de foco de cada botao
 static float entrada = 0.0f;       // 0..1 fade de abertura/fechamento da tela
 static Uint32 ultimoInput = 0;
+// Foco no botao "Pular abertura/resumo". Ele e um alvo de foco de verdade no
+// web (.player-skip-intro-btn.focused); aqui ele vive ACIMA da barra: CIMA da
+// barra vai para ele, BAIXO volta, OK pula. Quando os controles acordam com um
+// trecho no ar o foco ja nasce nele — e o que a mao faz: "pra cima" e OK.
+static int skipFoco = 0;
+static int trechoPulavel(double *fim);
 // Instante em que a IMAGEM comecou (nao a abertura da tela: entre uma coisa e
 // outra ha a busca de fonte, que pode levar segundos). Zero enquanto nao houve.
 // A guia parental se apoia nisto para aparecer UMA vez, no comeco, e sumir.
@@ -189,6 +195,7 @@ static int   comVideo = 0;
 static int   pedFaixas = 0;
 static int   esperandoFonte = 0;   // aberto sem URL, esperando o addon responder
 static float posSeg = 0.0f;
+static int trechoPulavel(double *fim) { int tipo; return intro_ativo(posSeg, fim, &tipo) && tipo != INTRO_CREDITOS; }
 static float duracaoSeg = PLR_DUR_PADRAO;
 
 static char linhaEp[220];          // "T1, E1 · <sinopse curta>", montada na abertura
@@ -809,8 +816,10 @@ void player_evento(const SDL_Event *e) {
           posSeg=(float)fim+.25f;if(comVideo)video_buscar(posSeg);return; } }
       alternarTocando(); acordar(); return;
     }
-    if (k == SDLK_UP || k == SDLK_DOWN || k == SDLK_LEFT || k == SDLK_RIGHT)
+    if (k == SDLK_UP || k == SDLK_DOWN || k == SDLK_LEFT || k == SDLK_RIGHT) {
       acordar();
+      if (trechoPulavel(NULL)) { skipFoco = 1; barraFoco = 1; }
+    }
     return;
   }
 
@@ -824,6 +833,16 @@ void player_evento(const SDL_Event *e) {
   }
 
   // CONTROLES EM PE: o foco anda pelos botoes e o OK aperta o botao em foco.
+  if (skipFoco) {
+    double fim;
+    if (!trechoPulavel(&fim)) skipFoco = 0;          // o trecho acabou por baixo do foco
+    else if (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) {
+      posSeg = (float)fim + .25f; if (comVideo) video_buscar(posSeg);
+      skipFoco = 0; acordar(); return;
+    } else if (k == SDLK_DOWN) { skipFoco = 0; acordar(); return; }
+    else if (k == SDLK_UP) { pedFaixas = 1; acordar(); return; }
+    else { acordar(); return; }                         // esquerda/direita: nada ao lado
+  }
   if (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) {
     // Na barra o OK pausa/retoma: e o que sobra de util, ja que a barra nao
     // tem acao propria no web.
@@ -861,7 +880,9 @@ void player_evento(const SDL_Event *e) {
   if (k == SDLK_UP) {
     // Pelo gesto de CIMA a folha abre no AUDIO, que e a coluna que a mao
     // procura mais.
-    if (!barraFoco) barraFoco = 1; else pedFaixas = 1;
+    if (!barraFoco) barraFoco = 1;
+    else if (trechoPulavel(NULL)) skipFoco = 1;
+    else pedFaixas = 1;
     acordar();
     return;
   }
@@ -1109,11 +1130,20 @@ static void desenharAcoesEpisodio(void){
   // (ofertaProximo). Duas interfaces para a mesma coisa na mesma tela era o
   // defeito de fundo; sobrou uma.
   (void)prox;
-  if(trecho&&tipo!=INTRO_CREDITOS){
+  if(!trecho||tipo==INTRO_CREDITOS){skipFoco=0;return;}
+  {
+    // .player-skip-intro: left 64, bottom 60; com controles em pe sobe para
+    // cima deles (.is-raised). O deslize acompanha `anim`, a mesma mola dos
+    // controles, para o botao nao pular de lugar.
     const char *rot=tipo==INTRO_RESUMO?"Pular resumo":"Pular abertura";
-    TxtLinha t=txt_linha(TXT_BODY,rot,250,250,252,255);float w=t.w+116;
-    GfxRect p={64,730,w,88};gfx_cor(p,.5f,.075f,.075f,.085f,.94f*entrada);
-    gfx_icone((GfxRect){88,752,44,44},"avancar",1,1,1,entrada);txt_desenhar_alpha(t,148,752,entrada);
+    int sel=skipFoco&&visivel;
+    TxtLinha t=sel?txt_linha(TXT_BODY,rot,20,20,24,255):txt_linha(TXT_BODY,rot,250,250,252,255);
+    float w=t.w+116, y=(NV_TELA_H-60.0f-88.0f)-anim*(NV_TELA_H-60.0f-88.0f-730.0f);
+    GfxRect p={64,y,w,88};
+    if(sel){gfx_cor(p,.27f,.97f,.97f,.98f,.96f*entrada);
+      GfxRect anel={p.x-4,p.y-4,p.w+8,p.h+8};gfx_rect(anel,0,GFX_ANEL,0,4.0f/anel.h,0.0f,.27f,1,1,1,.55f*entrada);}
+    else gfx_cor(p,.27f,.118f,.118f,.118f,.85f*entrada);
+    gfx_icone((GfxRect){88,y+22,44,44},"avancar",sel?.1f:1,sel?.1f:1,sel?.1f:1,entrada);txt_desenhar_alpha(t,148,y+22,entrada);
   }
 }
 
@@ -1227,7 +1257,6 @@ void player_desenhar(Uint32 agora) {
 
   /* Permanecem quando os controles somem: sao conteudo, nao chrome do player. */
   desenharLegendaExterna();
-  desenharAcoesEpisodio();
   // ANTES do corte por `a`: desenha-lo depois do `return` de "tocando limpo"
   // faria dele um painel que so aparece quando ja ha barra na tela.
   //
@@ -1261,7 +1290,10 @@ void player_desenhar(Uint32 agora) {
   posplay_desenhar(agora, NV_TELA_H - PLR_PAD_Y);
 
   float a = anim * entrada;
-  if (a <= 0.005f) return;   // tocando limpo: nada por cima da imagem
+  // O botao de pular fica POR CIMA dos degrades e dos controles: desenhado
+  // antes deles, o veu de 400px do rodape o afogava assim que a barra subia —
+  // era o "aparece e some" do relato. Sem controles ele e a unica coisa na tela.
+  if (a <= 0.005f) { desenharAcoesEpisodio(); return; }   // tocando limpo
 
   // Dois degrades, como no web: .player-controls-gradient-top (150px, 0.7 -> 0)
   // e .player-controls-gradient-bottom (200px, 0 -> 0.8). O de baixo sustenta o
