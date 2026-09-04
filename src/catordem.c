@@ -182,9 +182,27 @@ int catordem_ler(const char *resposta) {
     "disabled_catalog_keys", "hidden_catalog_keys", "catalog_disabled_keys",
     "home_catalog_disabled", "disabled"
   };
-  if (!resposta || !*resposta) return 0;
+  if (!resposta || !*resposta) { printf("[catordem] resposta vazia\n"); return 0; }
   blob = blobDe(resposta, &fim);
-  if (!blob) return 0;
+  // DIZ QUAL DOS CASOS E. Este ponto ja devolveu 0 em silencio uma vez, e do
+  // lado de fora "a home nao obedeceu" ficava indistinguivel de "o servidor
+  // nao tem a funcao".
+  //
+  // E separa o `[]` do resto: MEDIDO na conta real, a RPC responde 200 com
+  // array VAZIO quando ninguem gravou ordem naquele perfil. Isso e o servidor
+  // funcionando e a conta sem configuracao — chamar de "blob irreconhecivel"
+  // mandaria procurar defeito onde nao ha. Os 80 primeiros bytes bastam para
+  // reconhecer a forma das outras respostas sem despejar o blob inteiro no log
+  // a cada ciclo de sync.
+  if (!blob) {
+    const char *q = resposta;
+    while (*q && (unsigned char)*q <= ' ') q++;
+    if (q[0] == '[' && q[1] == ']')
+      printf("[catordem] a conta nao gravou ordem de catalogos neste perfil\n");
+    else
+      printf("[catordem] sem settings_json reconhecivel em: %.80s\n", resposta);
+    return 0;
+  }
 
   memcpy(antesOrdem, ordem, sizeof ordem);
   memcpy(antesOcultos, ocultos, sizeof ocultos);
@@ -196,6 +214,7 @@ int catordem_ler(const char *resposta) {
     // Nenhum dos dois formatos respondeu: a conta nao tem ordem gravada. Nao e
     // ordem VAZIA — devolver a lista local para o comeco aqui apagaria a home.
     if (!a && !d) {
+      printf("[catordem] a conta nao gravou ordem nem catalogos ocultos\n");
       memcpy(ordem, antesOrdem, sizeof ordem);
       memcpy(ocultos, antesOcultos, sizeof ocultos);
       nOrdem = nAntesOrdem;
@@ -218,8 +237,13 @@ int catordem_ler(const char *resposta) {
   for (i = 0; !mudou && i < nOcultos; i++)
     if (strcmp(ocultos[i], antesOcultos[i])) mudou = 1;
   temOrdem = nOrdem > 0 || nOcultos > 0;
+  // Imprime TAMBEM quando nao mudou nada, e dizendo qual dos dois casos e. Uma
+  // conta sem ordem configurada e uma leitura que falhou davam a mesma linha
+  // (nenhuma), e "a home nao obedeceu" nao tem como ser respondido assim.
   if (mudou)
     printf("[catordem] %d na ordem da conta, %d desligadas\n", nOrdem, nOcultos);
+  else if (!temOrdem)
+    printf("[catordem] a conta nao tem ordem de catalogos gravada\n");
   return mudou;
 }
 

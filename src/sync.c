@@ -421,6 +421,14 @@ static int puxarCatHome(const char *corpo) {
   if (jaAusente("sync_pull_home_catalog_settings")) return 0;
   r = sessao_rpc("sync_pull_home_catalog_settings", corpo, &st);
   if (!ok2xx(r, st)) {
+    // IMPRIME, como o contarRpc que estava aqui antes ja fazia. Sem esta linha
+    // a RPC ausente e a resposta vazia ficam com o MESMO sintoma no log —
+    // silencio — e foi exatamente o que aconteceu no primeiro deploy: nao dava
+    // para saber se o servidor nao tem a funcao ou se a conta nao configurou
+    // ordem nenhuma. Um caso e limitacao do servidor, o outro e o app
+    // funcionando; confundi-los custa uma sessao de investigacao.
+    printf("[sync] ordem de catalogos: HTTP %d%s\n", st,
+           (r && nuvem_erro_ausente(r)) ? " (funcao nao existe neste servidor)" : "");
     if (r && nuvem_erro_ausente(r) && nAusentes < SY_AUSENTES)
       ausentes[nAusentes++] = "sync_pull_home_catalog_settings";
     free(r);
