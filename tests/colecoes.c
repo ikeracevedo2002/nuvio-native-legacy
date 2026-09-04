@@ -38,6 +38,10 @@ int main(void) {
   assert(col_definir_json("{\"collections\":[{\"id\":\"c\",\"title\":\"T\",\"folders\":[{\"id\":\"g\",\"title\":\"G\",\"sources\":[{\"provider\":\"addon\",\"addonId\":\"org.x\",\"type\":\"movie\",\"catalogId\":\"k\"}]}]}]}") == 1);
   assert(!strcmp(col_folder(0)->sources[0].base, "https://resolvido"));
   puts("ok  addonId sem URL resolve pela sonda");
+  // a RPC real: collections_json e o array direto
+  assert(col_definir_json("[{\"profile_id\":1,\"collections_json\":[{\"id\":\"r\",\"title\":\"R\",\"folders\":[{\"id\":\"g\",\"title\":\"G\",\"sources\":[{\"addonId\":\"a\",\"type\":\"movie\",\"catalogId\":\"k\"}]}]}],\"updated_at\":\"x\"}]") == 1);
+  assert(!strcmp(col_folder(0)->groupId, "r"));
+  puts("ok  linha da RPC com o array direto");
   puts("colecoes: tudo ok");
   return 0;
 }

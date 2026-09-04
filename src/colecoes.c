@@ -176,7 +176,9 @@ int col_definir_json(const char *json) {
       } else if (v) json = v;
     } }
   fim = json + strlen(json);
-  arr = *json == '[' ? json : js_array(json, fim, "collections");
+  // MEDIDO na conta real: collections_json e o ARRAY direto, nao {collections}.
+  // js_raiz_array pula o '[' e para no primeiro elemento, como js_array faz.
+  arr = *json == '[' ? js_raiz_array(json) : js_array(json, fim, "collections");
   if (!arr) { free(solto); return 0; }
   // Le por cima do que estava: a conta manda a lista inteira.
   count = 0;
