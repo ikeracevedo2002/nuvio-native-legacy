@@ -125,7 +125,13 @@ eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   `# 32 KB de pilha do asyncify, o mesmo valor da bancada que roda. O laco de` \
   `# quadro desenrola por aqui a cada SwapWindow; 16 KB era aperto sem motivo.` \
   -sASYNCIFY -sASYNCIFY_STACK_SIZE=32768 \
-  -pthread -sPTHREAD_POOL_SIZE=12 -sPTHREAD_POOL_SIZE_STRICT=0 \
+  `# POOL DE 4, e nao 12. A TV declara hardwareConcurrency=4 (medido no painel)` \
+  `# e cada worker do pool instancia os 3,2 MB de wasm no arranque — doze deles` \
+  `# num aparelho de quatro nucleos e trabalho pago antes do primeiro quadro,` \
+  `# sem paralelismo em troca. Com POOL_SIZE_STRICT=0 os fios alem do pool` \
+  `# continuam nascendo sob demanda, entao isto nao poe teto no app: troca um` \
+  `# custo fixo de arranque por um custo sob demanda.` \
+  -pthread -sPTHREAD_POOL_SIZE=4 -sPTHREAD_POOL_SIZE_STRICT=0 \
   -sEXPORTED_FUNCTIONS='["_main","_malloc","_free"]' \
   -lidbfs.js \
   -sEXIT_RUNTIME=0 -sASSERTIONS="${NUVIO_ASSERTS:-1}" \

@@ -70,7 +70,15 @@
   (function () {
     var painel = document.getElementById("diag");
     var linhas = [];
+    // RELOGIO EM CADA LINHA. Sem ele, duas fotos do painel em pontos
+    // diferentes nao distinguem "travou" de "esta andando devagar" — e foi
+    // exatamente essa duvida que custou uma ida a TV: a primeira foto parava
+    // numa linha, a segunda duas linhas adiante, e as duas leituras eram
+    // compativeis com os dois diagnosticos.
+    var t0 = Date.now();
     function mostrar(txt, erro) {
+      var ms = Date.now() - t0;
+      txt = (ms / 1000).toFixed(1).padStart(6) + "s  " + txt;
       linhas.push(erro ? '<span class="e">' + txt + "</span>" : txt);
       // So as ultimas 34 linhas: a tela da TV nao tem mais que isso e o que
       // importa e o FIM, onde o arranque parou.
