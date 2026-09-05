@@ -38,3 +38,4 @@ build/
 # Fotos da tela da TV, tiradas para ler o painel de diagnostico.
 *.heic
 *.jpeg
+.DS_Store

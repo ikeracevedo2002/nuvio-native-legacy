@@ -40,6 +40,7 @@
 #include "parental.h"
 #include "episodios.h"
 #include "streams.h"
+#include "badges.h"
 #include "legenda.h"
 #include "intro.h"
 #include "pausao.h"
@@ -1479,6 +1480,14 @@ void player_desenhar(Uint32 agora) {
     // seria esconder metade da resposta.
     if (video_tem_dolby_vision())                  selos[nSelos++] = "Dolby Vision";
     else if (!strcasecmp(video_hdr(), "HDR10"))    selos[nSelos++] = "HDR10";
+#ifdef __EMSCRIPTEN__
+    else {
+      // AVPlay nao confirma HDR ativo. Identifica apenas a fonte selecionada.
+      const Stream *fonte = stream_item(stream_atual());
+      const char *hdr = fonte ? badges_fonte_hdr(fonte->badges) : NULL;
+      if (hdr) selos[nSelos++] = hdr;
+    }
+#endif
     if (video_tem_atmos())        selos[nSelos++] = "Dolby Atmos";
 
     // RELOGIO e "Termina as", que sao o que o web poe neste canto

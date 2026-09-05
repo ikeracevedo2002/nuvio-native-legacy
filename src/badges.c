@@ -54,6 +54,12 @@ uint64_t badges_detectar(const char *metadata) {
   return m;
 }
 uint64_t badges_provedor(const char *name){return badges_detectar(name)&(~UINT64_C(0)<<31);}
+const char *badges_fonte_hdr(uint64_t mask) {
+  if (mask & bit("v-hdr10plus")) return "Fonte HDR10+";
+  if (mask & bit("v-hdr10")) return "Fonte HDR10";
+  if (mask & bit("v-hdr")) return "Fonte HDR";
+  return NULL;
+}
 void badges_carregar(const char *dir) {
   char path[700];snprintf(path,sizeof path,"%s/badges/index.json",dir);FILE *f=fopen(path,"rb");if(!f)return;
   char body[24000];size_t n=fread(body,1,sizeof body-1,f);body[n]=0;fclose(f);
