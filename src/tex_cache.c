@@ -499,7 +499,7 @@ static int garantirLocal(const char *url, char *dst, size_t tam) {
         return 0;
       } }
     rename(tmp, dst);
-    cacheDiscoBytes += n;
+    cacheDiscoBytes += n;   // decrementado quando o arquivo e apagado
   }
   free(corpo);
   return 1;
@@ -657,6 +657,38 @@ static int threadDecode(void *arg) {
       if (!conv) conv = SDL_ConvertSurfaceFormat(bruta, SDL_PIXELFORMAT_ABGR8888, 0);
       SDL_FreeSurface(bruta);
     }
+#ifdef __EMSCRIPTEN__
+    // O ARQUIVO DE CACHE MORRE AQUI, no alvo Tizen e so nele.
+    //
+    // MEDIDO NA TV: 99 MB de cache-disco so abrindo listas. E RAM — o "disco"
+    // do Emscripten e MEMFS —, nada nunca era apagado, e esse consumo nao
+    // aparecia em nenhum contador: o [mem] mede o heap do malloc e o total de
+    // texturas mede a GPU. Somado ao heap FIXO de 256 MiB, e o que faz o app
+    // engasgar e travar depois de alguma navegacao.
+    //
+    // O cache de disco existe para nao rebaixar a mesma arte quando a textura e
+    // despejada. Aqui ele NAO PRECISA EXISTIR: o download passa pela pilha HTTP
+    // do proprio navegador, que ja mantem cache em DISCO DE VERDADE, com cota
+    // propria e despejo proprio, fora do nosso orcamento. Guardar o arquivo em
+    // MEMFS estava duplicando o cache do Chromium dentro da nossa RAM.
+    //
+    // O arquivo continua sendo o ponto de encontro entre o fio de rede e o de
+    // decode — so deixa de sobreviver a ele. Uma arte pedida de novo depois do
+    // despejo volta a ser baixada, e essa volta e barata porque o navegador
+    // serve do cache dele.
+    //
+    // So no Emscripten: no LG o cache e disco de verdade e apagar ali seria
+    // trocar leitura local por rede.
+    if (bruta) {
+      long tam = 0;
+      { FILE *g = fopen(caminho, "rb");
+        if (g) { fseek(g, 0, SEEK_END); tam = ftell(g); fclose(g); } }
+      if (remove(caminho) == 0) {
+        cacheDiscoBytes -= tam;
+        if (cacheDiscoBytes < 0) cacheDiscoBytes = 0;
+      }
+    }
+#endif
     // TETO DE LARGURA. Antes a arte vinha do pacote ja reduzida; agora vem da
     // rede no tamanho que o servidor tiver, e um backdrop de 1920 custa 8 MB
     // DECODIFICADO — meia duzia deles estoura o orcamento e o cache passa a
