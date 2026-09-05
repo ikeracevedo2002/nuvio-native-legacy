@@ -44,7 +44,11 @@
 // Teto de itens por secao. 24 e nao 8: uma temporada de "Silo" tem 10
 // episodios e o vetor de 8 escondia os dois ultimos — a lista parecia menor do
 // que a serie e.
-#define N_ITENS    24
+// Teto ANTIGO: 24. Como a lista de episodios e UNICA (todas as temporadas
+// juntas, ver irParaTemporada), 24 nao cobre nem uma serie media: da terceira
+// temporada em diante os episodios sumiam do foco e a aba de temporada nao
+// achava para onde ir.
+#define N_ITENS    240
 // SEIS secoes, mas nenhum titulo usa as seis: serie acende as quatro primeiras
 // e filme acende as tres ultimas. As que nao valem para o tipo devolvem 0 em
 // secaoN, e focus_mover PULA fileira vazia — entao a ordem do enum ja entrega a
@@ -110,6 +114,11 @@ static int temporada = 0;            // temporada ESCOLHIDA (nao a focada)
 // Repouso do foco sobre a fileira de temporadas, para trocar de temporada ao
 // PARAR numa pilula em vez de a cada pilula por que se passa.
 static int    tempPend = 0;
+// Episodio para o qual a aba de temporada APONTA. A rolagem da fileira de
+// episodios usa este indice enquanto o foco esta na fileira de temporadas —
+// antes a troca de temporada arrastava o FOCO para o episodio, e com isso o
+// D-pad saia da fileira de abas: nao dava para passar da segunda temporada.
+static int    epAncora = 0;
 static Uint32 tempDesde = 0;
 // Comentarios: 0 = da SERIE, 1 = do EPISODIO. E o seletor que a referencia poe
 // sob "Avaliações do Trakt". Em filme nao existe e fica cravado em 0.
@@ -186,19 +195,20 @@ static const char *cabecalhoDe(int r) {
 // PRIMEIRO episodio daquela temporada. Nao ha recarga, nao ha rede, nao ha
 // reconstrucao — a demora ao trocar de aba deixa de existir porque a troca
 // deixa de acontecer.
-static void irParaTemporada(int c) {
+static void irParaTemporada(int c, int moverFoco) {
   int alvo = temporadaEm(c), n = cat_n_episodios(idx), i;
   if (alvo <= 0 || n < 1) return;
+  if (n > foco.nColunas[SEC_EPISODIOS]) n = foco.nColunas[SEC_EPISODIOS];
   for (i = 0; i < n; i++) {
     const CatEp *e = cat_episodio(idx, i);
     if (e && e->temporada == alvo) {
-      // Mover o FOCO e nao so a rolagem: a fileira de episodios ja tem a regra
-      // de encostar o card focado na margem esquerda, e reusa-la deixa a aba e
-      // o D-pad concordando sobre onde o dono esta.
-      if (i < foco.nColunas[SEC_EPISODIOS]) {
-        foco.fileira = SEC_EPISODIOS;
-        foco.coluna = i;
-      }
+      // A ancora move a ROLAGEM sempre; o FOCO so quando o dono confirma com
+      // OK ou desce para a fileira. Puxar o foco no simples passar por cima da
+      // pilula tirava o dono da fileira de temporadas e prendia a navegacao
+      // nas duas primeiras abas.
+      epAncora = i;
+      foco.colunaLembrada[SEC_EPISODIOS] = i;
+      if (moverFoco) { foco.fileira = SEC_EPISODIOS; foco.coluna = i; }
       return;
     }
   }
@@ -469,6 +479,7 @@ void detail_abrir(const HomeItem *it) {
         if (ci0->temporadas[k] == e0->temporada) { temporada = k; break; }
     } }
   tempPend = temporada; tempDesde = 0;
+  epAncora = 0;
   int cols[N_SECOES]; for (int i = 0; i < N_SECOES; i++) cols[i] = secaoColunas(i);
   focus_iniciar(&foco, N_SECOES, cols);
   memset(animFoco, 0, sizeof animFoco);
@@ -953,7 +964,7 @@ void detail_evento(const SDL_Event *e) {
       // continuava a mesma, o que fazia a aba parecer quebrada.
       temporada = foco.coluna;
       tempPend = temporada; tempDesde = 0;
-      irParaTemporada(temporada);
+      irParaTemporada(temporada, 1);
     } else if (foco.fileira == SEC_ELENCO && abaIdDe(abaInfo) == ABA_ELENCO) {
       // OK num rosto abre a FILMOGRAFIA da pessoa. E o `openCastDetail` do web
       // (metaDetailsScreen.js:6165); aqui o OK no elenco nao fazia nada.
@@ -1126,12 +1137,15 @@ void detail_atualizar(float dt, Uint32 agora) {
     else if (tempPend != temporada && tempDesde &&
              agora - tempDesde >= NV_HERO_REPOUSO_MS) {
       temporada = tempPend;
-      irParaTemporada(temporada);
+      irParaTemporada(temporada, 0);
       tempDesde = 0;
     }
   } else {
     tempPend = temporada;
     tempDesde = 0;
+    // Andar pelos episodios move a ancora junto: voltando para as abas, a
+    // fileira nao pula de volta para o episodio de onde a aba a deixou.
+    if (foco.fileira == SEC_EPISODIOS) epAncora = foco.coluna;
   }
 
   // SELETOR DE COMENTARIOS, pela mesma regra: mover o foco ja troca a fonte.
@@ -1188,6 +1202,16 @@ void detail_atualizar(float dt, Uint32 agora) {
       }
       if (alvo < 0.0f) alvo = 0.0f;
       scrollSec[r] = anim_mola(scrollSec[r], alvo, dt, NV_MOLA_SCROLL);
+    }
+    // A fileira de episodios rola ATRAS da aba de temporada mesmo sem o foco:
+    // e o que da ao seletor a resposta visual que ele perdeu ao deixar de
+    // arrastar o foco junto.
+    if (r != SEC_EPISODIOS && secaoN(SEC_EPISODIOS) > 0 &&
+        epAncora < foco.nColunas[SEC_EPISODIOS]) {
+      float ax = xItem(SEC_EPISODIOS, epAncora) - NV_DETP_X;
+      if (ax < 0.0f) ax = 0.0f;
+      scrollSec[SEC_EPISODIOS] = anim_mola(scrollSec[SEC_EPISODIOS], ax, dt,
+                                           NV_MOLA_SCROLL);
     } }
 
   // --- rolagem VERTICAL -----------------------------------------------------
