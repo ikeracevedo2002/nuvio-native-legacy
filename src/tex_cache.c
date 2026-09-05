@@ -561,7 +561,43 @@ static int threadDecode(void *arg) {
     // O SDL2_image desta TV nao le WebP; a libwebp do sistema le (webp.c).
     if (!bruta) bruta = webp_carregar(caminho);
     if (bruta) {
-      conv = SDL_ConvertSurfaceFormat(bruta, SDL_PIXELFORMAT_ABGR8888, 0);
+      // REDUZ DIRETO DA BRUTA quando ela e maior que o teto, em vez de
+      // converter em tamanho cheio e so depois reduzir.
+      //
+      // POR QUE ISTO IMPORTA, medido na TV Samsung: o caminho antigo mantinha
+      // `bruta` e `conv` VIVAS AO MESMO TEMPO, as duas em tamanho cheio. Um
+      // backdrop de 3840x2160 em ABGR8888 custa 33 MB, entao o pico era 66 MB
+      // por imagem — e com NV_TEX_FIOS igual a 2, 132 MB de pico so em
+      // decodificacao, sobre ~60 MB de uso estavel. Num heap FIXO de 256 MiB
+      // (a TV aceita reservar, mas recusa crescer depois) isso terminou em
+      // "Cannot enlarge memory arrays to size 295014400 bytes (OOM)" com a home
+      // ja desenhada e 38 fps.
+      //
+      // O SDL_BlitScaled CONVERTE O FORMATO durante a copia, entao a copia
+      // intermediaria em tamanho cheio nunca precisou existir: o destino ja
+      // nasce com 640 de largura e no formato final. O pico cai de 2x para 1x
+      // o tamanho da fonte.
+      //
+      // BLENDMODE_NONE e obrigatorio: o padrao para arte com alpha e BLEND, e
+      // blitar em cima de uma superficie recem-criada (que e transparente)
+      // multiplicaria a cor pelo alpha e escureceria a borda dos logos. NONE
+      // copia o pixel como esta, que e o que uma conversao faz.
+      if (bruta->w > limite) {
+        int lw = limite;
+        int lh = bruta->h * lw / bruta->w;
+        SDL_Surface *menor = SDL_CreateRGBSurfaceWithFormat(
+            0, lw, lh > 0 ? lh : 1, 32, SDL_PIXELFORMAT_ABGR8888);
+        if (menor) {
+          SDL_SetSurfaceBlendMode(bruta, SDL_BLENDMODE_NONE);
+          // BlitScaled faz media dos vizinhos; um decimador ingenuo deixaria a
+          // arte serrilhada.
+          SDL_BlitScaled(bruta, NULL, menor, NULL);
+          conv = menor;
+        }
+      }
+      // Fonte ja pequena, ou a superficie reduzida nao pode ser criada: o
+      // caminho antigo continua valendo.
+      if (!conv) conv = SDL_ConvertSurfaceFormat(bruta, SDL_PIXELFORMAT_ABGR8888, 0);
       SDL_FreeSurface(bruta);
     }
     // TETO DE LARGURA. Antes a arte vinha do pacote ja reduzida; agora vem da
