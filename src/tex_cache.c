@@ -74,6 +74,13 @@ static int rodando = 0;
 // corruption" dentro do SDL: era falta de memoria, nao bug de ponteiro.
 static long bytesUsados = 0;
 static long orcamento = 0;
+// Bytes gravados no cache de disco. No alvo Tizen "disco" e MEMFS, ou seja RAM
+// (o log mostra idbfs=0/0.0ms), e nada nunca e apagado — cada arte baixada fica
+// na memoria pelo resto da sessao. Isso nao aparecia em lugar nenhum: nem no
+// [mem], que mede o heap do malloc, nem no total de texturas, que mede a GPU.
+// Sem este numero nao da para dizer se a travada depois de muito uso e o cache
+// de disco crescendo ou outra coisa.
+static long cacheDiscoBytes = 0;
 static unsigned long quadroAtual = 1;
 
 // O driver tambem aloca a piramide de mipmaps. Contar apenas o nivel base
@@ -469,9 +476,30 @@ static int garantirLocal(const char *url, char *dst, size_t tam) {
     // escrita joga fora toda imagem baixada e o unico sintoma era card cinza.
     if (!f) { printf("[tex] nao consegui gravar %.80s\n", tmp); fflush(stdout);
               free(corpo); return 0; }
-    fwrite(corpo, 1, (size_t)n, f);
-    fclose(f);
+    // O RETORNO DO fwrite IMPORTA, e o de fclose tambem.
+    //
+    // Sem conferir, uma gravacao PARCIAL virava arquivo de cache "valido": o
+    // rename promovia o truncado, o teste de assinatura logo acima continuava
+    // passando (o comeco do JPEG esta la, FF D8) e o decode falhava DEPOIS, com
+    // "Unsupported image format". Como o arquivo ficava no cache, aquela arte
+    // nunca mais carregava — o defeito se perpetuava sozinho.
+    //
+    // No alvo Tizen isto nao e hipotetico: o cache de disco vive em MEMFS, ou
+    // seja, na RAM (o log mostra idbfs=0), e sob pressao de memoria a gravacao
+    // e exatamente o que fica pela metade. Foi assim que os
+    // "decode falhou (Unsupported image format): /nuvio/cache/*.jpg"
+    // apareceram em serie na TV.
+    { size_t esc = fwrite(corpo, 1, (size_t)n, f);
+      int fim = fclose(f);
+      if (esc != (size_t)n || fim != 0) {
+        printf("[tex] gravacao incompleta (%zu de %ld B): %.70s\n", esc, n, dst);
+        fflush(stdout);
+        remove(tmp);              // nao deixa meio arquivo virar cache
+        free(corpo);
+        return 0;
+      } }
     rename(tmp, dst);
+    cacheDiscoBytes += n;
   }
   free(corpo);
   return 1;
@@ -709,6 +737,11 @@ static int threadDecode(void *arg) {
 
     if (falhou) {
       printf("[tex] decode falhou (%s): %.70s\n", IMG_GetError(), caminho);
+      // APAGA o arquivo que nao decodifica. Ele so pode ter chegado ao cache
+      // corrompido — a assinatura foi conferida no download —, e mante-lo
+      // significa que esta arte NUNCA mais carrega, nem depois de o problema
+      // que a truncou passar. Apagando, o proximo pedido baixa de novo.
+      remove(caminho);
       fflush(stdout);
       // Arquivo LOCAL que nao decodifica esta envenenado: garantirLocal o
       // aceita para sempre por ter mais de 512 bytes, entao sem apagar aqui o
@@ -1007,3 +1040,5 @@ void tex_estatisticas(int *nItens, int *nPend, long *bytes) {
   if (nPend) *nPend = p;
   if (bytes) *bytes = b;
 }
+
+long tex_cache_disco_bytes(void) { return cacheDiscoBytes; }

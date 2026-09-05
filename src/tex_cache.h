@@ -76,3 +76,7 @@ void tex_novo_quadro(void);
 void tex_estatisticas(int *itens, int *pendentes, long *bytes);
 
 #endif
+
+// Quanto o cache de DISCO ocupa. No Tizen o "disco" e MEMFS: isto e RAM que
+// cresce a sessao inteira e nao aparece no [mem] nem no total de texturas.
+long tex_cache_disco_bytes(void);
