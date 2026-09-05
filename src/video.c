@@ -208,6 +208,34 @@ static int  (*acbConectar)(long, int, long *);
 static int  (*acbVideoData)(long, const char *, long *);
 static int  (*acbAudioData)(long, const char *, long *);
 
+// ---------------------------------------------------------------- webOS 5+
+//
+// A LG apagou a libAcbAPI na webOS 5.0. Sem ela o dlopen falhava, video_iniciar
+// devolvia 0 e NENHUMA fonte abria — o relato "streams are not playing" de quem
+// testou num OLED 2020 (CX, webOS 5). O caminho de la e outro: a SDL da propria
+// TV exporta uma janela para o plano de video e o uMS recebe o ID dela em
+// `windowId`, no lugar do "window_id_dummy" que o caminho do ACB usa. E o mesmo
+// que o Kodi e o moonlight fazem na 5+.
+//
+// Assinaturas TIRADAS DO HEADER DO SDK (SDL2/SDL_webOS.h do buildroot da
+// openlgtv), nao de memoria:
+//   const char *SDL_webOSCreateExportedWindow(int type);
+//   SDL_bool    SDL_webOSSetExportedWindow(const char *id, SDL_Rect *src, SDL_Rect *dst);
+//   SDL_bool    SDL_webOSExportedSetCropRegion(const char *id, SDL_Rect *org,
+//                                              SDL_Rect *src, SDL_Rect *dst);
+//   void        SDL_webOSDestroyExportedWindow(const char *id);
+// type 0 = SDL_WEBOS_EXPORED_WINDOW_TYPE_VIDEO (a grafia truncada e do header).
+//
+// Por dlsym e nao por chamada direta: o binario e o MESMO nos dois mundos, e na
+// webOS 4 esses simbolos nao existem. Referencia direta viraria dependencia de
+// link e o app nao subiria mais na C9, trocando um aparelho quebrado por outro.
+static const char *(*sdlExpCriar)(int);
+static int         (*sdlExpJanela)(const char *, SDL_Rect *, SDL_Rect *);
+static int         (*sdlExpRecorte)(const char *, SDL_Rect *, SDL_Rect *, SDL_Rect *);
+static void        (*sdlExpDestruir)(const char *);
+// ID devolvido pela SDL. Vazio = estamos no caminho do ACB (webOS 4).
+static char        expWin[64];
+
 static LSHandle *bus;
 static void     *laco;
 static pthread_t fio;
@@ -887,7 +915,31 @@ int video_iniciar(void) {
   if (!L) L = dlopen("libluna-service2.so", RTLD_NOW);
   G = dlopen("libglib-2.0.so.0", RTLD_NOW);
   A = dlopen("libAcbAPI.so.1", RTLD_NOW);
-  if (!L || !G || !A) { printf("[video] libs: %s\n", dlerror()); return 0; }
+  if (!L || !G) { printf("[video] libs: %s\n", dlerror()); return 0; }
+  if (!A) {
+    // webOS 5+: sem ACB, a janela exportada da SDL e quem prende o plano.
+    // dlopen(NULL) devolve o handle do PROPRIO processo: a libSDL2 ja esta
+    // carregada (o binario linka contra ela), entao os simbolos, quando
+    // existem, estao ai. dlopen de outra copia da SDL daria dois estados dela
+    // no mesmo processo. (RTLD_DEFAULT faria o mesmo, mas exige _GNU_SOURCE.)
+    void *eu = dlopen(NULL, RTLD_NOW);
+    printf("[video] sem libAcbAPI (webOS 5+): tentando janela exportada da SDL\n");
+    *(void **)(&sdlExpCriar)    = dlsym(eu, "SDL_webOSCreateExportedWindow");
+    *(void **)(&sdlExpJanela)   = dlsym(eu, "SDL_webOSSetExportedWindow");
+    *(void **)(&sdlExpRecorte)  = dlsym(eu, "SDL_webOSExportedSetCropRegion");
+    *(void **)(&sdlExpDestruir) = dlsym(eu, "SDL_webOSDestroyExportedWindow");
+    // O recorte de fonte e opcional (custa o zoom, nao a imagem), do mesmo jeito
+    // que AcbAPI_setCustomDisplayWindow e opcional no caminho do ACB.
+    if (!sdlExpRecorte) printf("[video] sem SDL_webOSExportedSetCropRegion; zoom fica indisponivel\n");
+    if (!sdlExpCriar || !sdlExpJanela) {
+      printf("[video] esta TV nao tem ACB nem janela exportada; sem caminho de video\n");
+      return 0;
+    }
+    { const char *id = sdlExpCriar(0);   /* 0 = ..._TYPE_VIDEO */
+      if (!id || !*id) { printf("[video] SDL_webOSCreateExportedWindow nao devolveu id\n"); return 0; }
+      snprintf(expWin, sizeof expWin, "%s", id);
+      printf("[video] janela exportada: %s\n", expWin); }
+  }
 
   SIM(L, lsRegister, "LSRegister");
   SIM(L, lsAttach,   "LSGmainAttach");
@@ -896,6 +948,7 @@ int video_iniciar(void) {
   SIM(G, loopNovo,   "g_main_loop_new");
   SIM(G, loopRodar,  "g_main_loop_run");
   SIM(G, loopParar,  "g_main_loop_quit");
+  if (A) {
   SIM(A, acbCriar,    "AcbAPI_create");
   SIM(A, acbIniciar,  "AcbAPI_initialize");
   SIM(A, acbSink,     "AcbAPI_setSinkType");
@@ -910,6 +963,7 @@ int video_iniciar(void) {
   SIM(A, acbConectar, "AcbAPI_connectDass");
   SIM(A, acbVideoData, "AcbAPI_setMediaVideoData");
   SIM(A, acbAudioData, "AcbAPI_setMediaAudioData");
+  }
 
   // O nome PRECISA casar com o padrao do papel LS2 do app
   // (allowedNames: "com.webos.media.client.*"). Qualquer outro nome e recusado
@@ -924,12 +978,15 @@ int video_iniciar(void) {
   // variaveis simples, lidas pelo desenho sem trava.
   pthread_create(&fio, NULL, rodarLaco, NULL);
 
-  lerAjustesAcb();
-  acb = acbCriar();
+  if (A) {
+    lerAjustesAcb();
+    acb = acbCriar();
     acbIniciar(acb, tipoJogador, "space.nuvio.native.legacy", (void *)acbNotificou);
-  acbSink(acb, tipoSink);
+    acbSink(acb, tipoSink);
+  }
   ligado = 1;
-  printf("[video] pronto (acb=%ld)\n", acb); fflush(stdout);
+  printf("[video] pronto (acb=%ld janela=%s)\n", acb, expWin[0] ? expWin : "-");
+  fflush(stdout);
   return 1;
 }
 
@@ -1214,8 +1271,14 @@ static int tocarInterno(const char *url, int comDV) {
       "\"appId\":\"space.nuvio.native.legacy\","
       "%s"
       "\"bufferControl\":{\"userBufferCtrl\":false},"
-      "\"windowId\":\"window_id_dummy\"}},"
-      "\"uri\":\"%s\",\"type\":\"media\"}", dolby, url);
+      "\"windowId\":\"%s\"}},"
+      "\"uri\":\"%s\",\"type\":\"media\"}",
+      dolby,
+      // No caminho do ACB o id e um marcador qualquer (so nao pode ser vazio,
+      // ver acima); no da webOS 5 ele e o endereco REAL do plano exportado e um
+      // valor errado aqui deixa o video sem para onde ir.
+      expWin[0] ? expWin : "window_id_dummy",
+      url);
   printf("[video] URL: %s\n", url); fflush(stdout);
   msDoLoad = agoraMs();
   chamarCtx("load", carga, aoCarregar, (void *)(uintptr_t)minhaSessao);
@@ -1305,9 +1368,17 @@ void video_janela(int x, int y, int w, int h) {
   if (w < 1 || h < 1) return;
   if (x == janX && y == janY && w == janW && h == janH) return;  // sem repetir o mesmo rect a cada quadro
   janX = x; janY = y; janW = w; janH = h;
-  if (!ligado || !acb || !midia[0]) return;   // sem midia presa, aplicar seria no vazio
+  if (!ligado || !midia[0]) return;   // sem midia presa, aplicar seria no vazio
+  if (!acb && !expWin[0]) return;
   printf("[video] janela %d,%d %dx%d cheia=%d\n", x, y, w, h, cheia);
   fflush(stdout);
+  if (expWin[0]) {
+    // src NULL = o quadro inteiro. Quem recorta a fonte e o video_janela_fonte.
+    SDL_Rect dst; dst.x = x; dst.y = y; dst.w = w; dst.h = h;
+    printf("[video] janela exportada -> %d\n", sdlExpJanela(expWin, NULL, &dst));
+    fflush(stdout);
+    return;
+  }
   acbJanela(acb, x, y, w, h, cheia, &tarefa);
 }
 
@@ -1382,6 +1453,22 @@ void video_janela_fonte(int sx, int sy, int sw, int sh,
   printf("[video] fonte %d,%d %dx%d -> destino %d,%d %dx%d\n",
          sx, sy, sw, sh, dx, dy, dw, dh);
   fflush(stdout);
+  // webOS 5+: o recorte vive na janela exportada. `org` e o quadro inteiro,
+  // `src` o pedaco pedido e `dst` o retangulo na tela — os mesmos tres papeis
+  // do sourceInput/displayOutput do tv.display, so que ditos a SDL.
+  if (expWin[0]) {
+    SDL_Rect org, src, dst;
+    org.x = 0;  org.y = 0;  org.w = vidW > 0 ? vidW : 1920; org.h = vidH > 0 ? vidH : 1080;
+    src.x = sx; src.y = sy; src.w = sw; src.h = sh;
+    dst.x = dx; dst.y = dy; dst.w = dw; dst.h = dh;
+    if (sdlExpRecorte && sdlExpRecorte(expWin, &org, &src, &dst)) return;
+    // Recusou (ou nem existe): cair para tela cheia sem recorte pela mesma
+    // regra do ACB — perde-se o zoom, nao a imagem.
+    printf("[video] janela exportada recusou o recorte; sem zoom\n"); fflush(stdout);
+    semUms = 1;
+    video_janela(dx, dy, dw, dh);
+    return;
+  }
   // O caminho e o ACB, nao o luna direto: o hub recusa o app no tv.display.
   if (acbJanelaCustom && acb) {
     long tarefa = 0;
@@ -1552,6 +1639,7 @@ void video_encerrar(void) {
   if (!ligado) return;
   video_parar();
   if (acb) { acbDestruir(acb); acb = 0; }
+  if (expWin[0] && sdlExpDestruir) { sdlExpDestruir(expWin); expWin[0] = 0; }
   if (laco) loopParar(laco);
   ligado = 0;
 }
