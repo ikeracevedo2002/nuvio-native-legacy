@@ -554,6 +554,20 @@ int main(int argc, char **argv) {
       // com KEYDOWN e KEYUP quase juntos — so o KEYDOWN conta. Isto ja tinha
       // sido resolvido uma vez e voltou a quebrar quando limpei os remendos
       // antigos: o tratamento saiu junto.
+#ifdef __EMSCRIPTEN__
+      // TIZEN: o Return do controle Samsung e o keyCode 10009 (XF86Back), que
+      // nao existe na tabela do SDL. tizen-shell.html o traduz em Escape, e
+      // AQUI o Escape vira AC_BACK — o mesmo codigo que o webOS entrega.
+      //
+      // Normalizar no ponto unico, e nao tela a tela, porque o defeito
+      // apareceu justamente onde faltava: a filmografia so tratava AC_BACK
+      // (detail.c), entao no Tizen o voltar nao voltava dali. Corrigir so
+      // aquela tela deixaria a proxima com a mesma armadilha. Conferido antes:
+      // nenhuma tela do app trata ESCAPE sem tratar AC_BACK junto, entao a
+      // conversao nao tira nada de ninguem.
+      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
+        e.key.keysym.sym = SDLK_AC_BACK;
+#endif
       if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == NV_SCANCODE_BACK) {
         SDL_Event back; SDL_zero(back);
         back.type = SDL_KEYDOWN;
