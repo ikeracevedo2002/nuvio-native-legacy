@@ -38,7 +38,18 @@ mkdir -p "$ESTAGIO"
 cp "$ENTRADA"/index.html "$ENTRADA"/index.js "$ENTRADA"/index.wasm "$ESTAGIO"/
 [ -f "$ENTRADA/index.data" ] && cp "$ENTRADA/index.data" "$ESTAGIO"/
 cp tools/tizen-config.xml "$ESTAGIO"/config.xml
-cp deploy/app/icon.png "$ESTAGIO"/icon.png
+# ICONE OFICIAL DO SAMSUNG, e nao o deploy/app/icon.png do LG.
+#
+# O do LG tem 80x80 e 211 bytes — um marcador, que na grade de apps da Samsung
+# aparece minusculo e borrado. deploy/app/tizen/icon.png e o
+# store-assets/samsung/icon-512x423.png do app web, que e a arte oficial no
+# tamanho que a Samsung especifica para a grade (512 de largura).
+if [ -f deploy/app/tizen/icon.png ]; then
+  cp deploy/app/tizen/icon.png "$ESTAGIO"/icon.png
+else
+  echo "tizen-wgt.sh: AVISO — sem deploy/app/tizen/icon.png, usando o icone do LG" >&2
+  cp deploy/app/icon.png "$ESTAGIO"/icon.png
+fi
 
 # CONFERE ANTES DE FECHAR. Um .wgt sem o .wasm instala, abre e fica preto — o
 # mesmo tipo de falha muda que ja mordeu o empacotamento Tizen do fork em

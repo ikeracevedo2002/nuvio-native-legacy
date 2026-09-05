@@ -198,6 +198,30 @@
     } catch (e) {}
   }, 3000);
 
+  // TECLA RETURN DO CONTROLE SAMSUNG -> Escape.
+  //
+  // No webOS o botao de voltar chega ao SDL como SDLK_AC_BACK e o app ja o
+  // trata em toda tela. Na Samsung ele e o keyCode 10009 (XF86Back), que nao
+  // existe na tabela do SDL: o evento chega ao navegador e MORRE ali, sem virar
+  // tecla nenhuma para o C. O sintoma e o botao de voltar nao fazer nada dentro
+  // de uma lista — que e onde nao ha outra saida.
+  //
+  // Traduzir aqui e melhor que ensinar o C a conhecer 10009: o codigo de voltar
+  // ja existe e e o mesmo dos outros dois alvos; o que faltava era a tecla
+  // chegar. Escape porque as telas ja o aceitam ao lado de AC_BACK.
+  window.addEventListener("keydown", function (ev) {
+    if (ev.keyCode !== 10009) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var alvo = document.getElementById("canvas") || window;
+    ["keydown", "keyup"].forEach(function (t) {
+      alvo.dispatchEvent(new KeyboardEvent(t, {
+        key: "Escape", code: "Escape", keyCode: 27, which: 27,
+        bubbles: true, cancelable: true
+      }));
+    });
+  }, true);
+
   // TECLA VERMELHA = mostra/esconde o painel de diagnostico. Ela ja e
   // registrada acima (ColorF0Red) e o app nao a usa para mais nada. Num
   // aparelho sem DevTools a mao, e o unico jeito de ler o log depois que a

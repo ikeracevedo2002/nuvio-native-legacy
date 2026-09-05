@@ -173,6 +173,12 @@ void cat_definir_na_lista(int i, int naLista);
 
 // Grava onde o dono parou NESTE app: escreve em progresso.c (pendente, com a
 // chave do web) e atualiza o item. E o caminho do player.
+// Apaga a posicao de retomada de UM item, so no catalogo em memoria. Quem
+// apaga o registro persistido e prog_remover; esta funcao existe para o card
+// sair da fileira "Continuar assistindo" no mesmo quadro, sem esperar a
+// proxima remontagem do catalogo.
+void cat_zerar_progresso(int indice);
+
 void cat_salvar_progresso(int indice, double posSeg, double durSeg);
 void cat_salvar_progresso_ep(int indice, double posSeg, double durSeg, int temporada, int episodio);
 

@@ -8,6 +8,7 @@
 #include "layout.h"
 #include "anim.h"
 #include "ajustes.h"
+#include "progresso.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -76,7 +77,7 @@ static struct { const char *rot; int acao; } ops[CTX_MAX];
 static int nOps;
 static float focoAnim[CTX_MAX];
 static int holdObservador;
-enum { OP_DETALHES, OP_LISTA, OP_ASSISTIDO };
+enum { OP_DETALHES, OP_LISTA, OP_ASSISTIDO, OP_TIRAR_CONTINUAR };
 
 static int indiceAtual(void) {
   int n = cat_n();
@@ -119,6 +120,21 @@ static void montar(void) {
                         ? "Desmarcar como assistido"
                         : "Marcar como assistido";
     ops[nOps].acao = OP_ASSISTIDO; nOps++;
+  }
+  // TIRAR DE "CONTINUAR ASSISTINDO".
+  //
+  // So aparece em item que TEM progresso — e o unico caso em que a acao quer
+  // dizer alguma coisa, e oferecer em todo card poluiria o menu com um botao
+  // que nao faz nada. `progresso` e o campo que a home usa para decidir se
+  // desenha a barra, entao a condicao aqui e a mesma que poe o item na fileira.
+  //
+  // Distinta de "marcar como assistido": aquela e historico no Trakt e vale
+  // para o titulo; esta apaga a POSICAO DE RETOMADA local, que e o que faz o
+  // card aparecer na fileira. Quem terminou um filme quer as duas; quem
+  // desistiu no meio quer so esta.
+  if (ci->progresso > 0 && ci->imdb[0]) {
+    ops[nOps].rot = "Tirar de Continuar assistindo";
+    ops[nOps].acao = OP_TIRAR_CONTINUAR; nOps++;
   }
 }
 
@@ -177,6 +193,20 @@ static void aplicar(void) {
         estadoOperacao = CTX_FALHA;
       montar();
       break;
+    case OP_TIRAR_CONTINUAR: {
+      // A chave e montada do mesmo jeito que progresso.c monta ao gravar —
+      // com temporada e episodio quando ha —, senao a linha apagada seria
+      // outra e o card continuaria na fileira.
+      char chave[192];
+      prog_chave(chave, sizeof chave, ci->imdb, ci->temporada, ci->episodio);
+      prog_remover(chave);
+      // Efeito local e imediato: sem zerar o campo, o card so sairia da fileira
+      // na proxima remontagem do catalogo, e para quem apertou parece que nada
+      // aconteceu.
+      cat_zerar_progresso(atual);
+      aberto = 0;
+      break;
+    }
   }
   if (acao == OP_DETALHES) aberto = 0;
 }

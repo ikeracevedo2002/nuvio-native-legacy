@@ -519,6 +519,17 @@ static int aplicarProgressoDoDisco(void) {
   return aplicados;
 }
 
+void cat_zerar_progresso(int indice) {
+  if (indice < 0 || indice >= n) return;
+  // Os quatro campos que a home le para decidir se o card entra em "Continuar
+  // assistindo" e o que escrever na legenda dele. Zerar so `progresso` deixaria
+  // a linha "T1, E8 · 16 min" desenhada sobre um card sem barra.
+  itens[indice].progresso   = 0;
+  itens[indice].restanteMin = 0;
+  itens[indice].temporada   = 0;
+  itens[indice].episodio    = 0;
+}
+
 void cat_salvar_progresso(int indice, double posSeg, double durSeg) {
   cat_salvar_progresso_ep(indice,posSeg,durSeg,0,0);
 }
