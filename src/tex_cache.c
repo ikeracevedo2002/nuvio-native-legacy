@@ -78,16 +78,45 @@ static unsigned long quadroAtual = 1;
 
 // O driver tambem aloca a piramide de mipmaps. Contar apenas o nivel base
 // deixava o cache ultrapassar o teto real em cerca de 33% nas artes de card.
-static long bytesTextura(int w, int h) {
+// COBRAR A PIRAMIDE SO QUANDO ELA EXISTE.
+//
+// A regra "w < 1024" era o palpite certo no LG e ERRADO no Tizen. La o driver
+// Mali expoe OES_texture_npot e quase toda arte ganha piramide; aqui o WebGL 1
+// RECUSA mipmap em textura nao-potencia-de-dois (o painel da TV confirma:
+// WebGL/npot = false), entao praticamente nenhum card tem piramide — e mesmo
+// assim todos eram cobrados por ela.
+//
+// O efeito e ~33% de sobrecontagem em cada textura de card: o cache se julgava
+// nos 96 MB do orcamento estando em ~72 MB reais, e despejava muito mais do que
+// precisava. Medido na TV: despejos=84, depois 66, depois 41 em intervalos de
+// 3 s, com texturas=104 — ou seja, girando quase o cache inteiro, e cada volta
+// custa baixar, decodificar e subir de novo. E esse giro que aparece como FPS
+// caindo para 2 de vez em quando e voltando.
+static long bytesTexturaMip(int w, int h, int comPiramide) {
   long total = (long)w * h * 4;
   int mw = w, mh = h;
-  if (w >= 1024) return total;
+  if (!comPiramide) return total;
   while (mw > 1 || mh > 1) {
     mw = (mw + 1) / 2;
     mh = (mh + 1) / 2;
     total += (long)mw * mh * 4;
   }
   return total;
+}
+
+// Mesma decisao que o envio toma, para a conta e a cobranca nao divergirem.
+static int temPiramide(int w, int h) {
+  if (w >= 1024) return 0;
+#ifdef __EMSCRIPTEN__
+  { int lp = (w > 0) && ((w & (w - 1)) == 0);
+    int ap = (h > 0) && ((h & (h - 1)) == 0);
+    if (!lp || !ap) return 0; }
+#endif
+  return 1;
+}
+
+static long bytesTextura(int w, int h) {
+  return bytesTexturaMip(w, h, temPiramide(w, h));
 }
 
 // DUAS FILAS, e a separacao e o conserto.
@@ -901,7 +930,9 @@ int tex_bombear(int max_por_quadro) {
   //
   // Sem mipmap o filtro TEM de ser GL_LINEAR: com MIPMAP_NEAREST numa textura
   // sem piramide a amostragem e indefinida e a textura sai PRETA.
-  int comMip = (sup->w < 1024);
+  // temPiramide() e a fonte unica desta decisao: a contabilidade de bytes usa a
+  // mesma funcao, entao cobranca e geracao nunca divergem.
+  int comMip = temPiramide(sup->w, sup->h);
 #ifdef __EMSCRIPTEN__
   // WEBGL 1 RECUSA MIPMAP EM TEXTURA NAO-POTENCIA-DE-DOIS, e o preco e o card
   // PRETO. glGenerateMipmap numa NPOT devolve GL_INVALID_OPERATION e nao gera
