@@ -679,7 +679,11 @@ static int threadDecode(void *arg) {
     //
     // So no Emscripten: no LG o cache e disco de verdade e apagar ali seria
     // trocar leitura local por rede.
-    if (bruta) {
+    // `conv` e nao `bruta`: bruta ja foi liberada logo acima, e testar um
+    // ponteiro liberado funciona por acidente, nao por regra. conv tambem e o
+    // sinal certo — so apaga o arquivo quando ele DECODIFICOU; o que falhou e
+    // apagado no ramo de erro, com log.
+    if (conv) {
       long tam = 0;
       { FILE *g = fopen(caminho, "rb");
         if (g) { fseek(g, 0, SEEK_END); tam = ftell(g); fclose(g); } }
