@@ -134,10 +134,14 @@
       // O painel morre no primeiro quadro: dai em diante o app fala por si.
       if (window.__nvDiag) {
         window.__nvDiag(t);
+        // ESCONDE, NAO REMOVE. A primeira versao arrancava o painel do DOM no
+        // primeiro quadro, e isso deixou a sessao CEGA justamente quando o app
+        // passou a arrancar e a travar mais adiante, na tela de login: nao havia
+        // mais onde ler nada. O painel continua recebendo linhas em silencio e
+        // volta com a tecla VERMELHA do controle.
         if (t.indexOf("primeiro quadro na tela") >= 0) {
           var p = document.getElementById("diag");
-          if (p) p.parentNode.removeChild(p);
-          window.__nvDiag = null;
+          if (p) p.hidden = true;
         }
       }
     },
@@ -157,6 +161,20 @@
         });
     }
   } catch (e) {}
+
+  // TECLA VERMELHA = mostra/esconde o painel de diagnostico. Ela ja e
+  // registrada acima (ColorF0Red) e o app nao a usa para mais nada. Num
+  // aparelho sem DevTools a mao, e o unico jeito de ler o log depois que a
+  // interface subiu — e foi a falta disso que cegou a investigacao quando o app
+  // passou a travar na tela de login em vez de no arranque.
+  window.addEventListener("keydown", function (ev) {
+    // 403 = ColorF0Red no controle Samsung; F1 serve para testar no desktop.
+    if (ev.keyCode === 403 || ev.key === "F1") {
+      var p = document.getElementById("diag");
+      if (p) p.hidden = !p.hidden;
+      ev.preventDefault();
+    }
+  }, true);
 
   // O SDL le o teclado do elemento com foco. Sem isto o app abre e nao responde
   // ao controle, o que parece travamento e nao falta de foco.

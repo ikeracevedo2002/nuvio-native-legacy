@@ -24,19 +24,19 @@
     if (typeof Module !== "undefined" && Module.print)
       Module.print("[AV] " + nome + "(" + a + ")");
   }
-  var estado = "NONE", ouvinte = null;
+  var estado = "NONE", ouvinte = null, preparoSincrono = false;
   window.webapis = window.webapis || {};
   window.webapis.avplay = {
-    open:            function (u) { log("open", arguments); estado = "IDLE"; },
+    open:            function (u) { log("open", arguments); estado = "IDLE"; preparoSincrono = false; },
     close:           function ()  { log("close", arguments); estado = "NONE"; },
     stop:            function ()  { log("stop", arguments); estado = "IDLE"; },
     play:            function ()  { log("play", arguments); estado = "PLAYING";
                                     if (ouvinte && ouvinte.oncurrentplaytime) ouvinte.oncurrentplaytime(0); },
     pause:           function ()  { log("pause", arguments); estado = "PAUSED"; },
-    prepare:         function ()  { log("prepare", arguments); estado = "READY"; },
+    prepare:         function ()  { log("prepare", arguments); estado = "READY"; preparoSincrono = true; },
     prepareAsync:    function (ok, err) {
-                       log("prepareAsync", arguments); estado = "READY";
-                       setTimeout(function () { if (ok) ok(); }, 10);
+                       log("prepareAsync", arguments); preparoSincrono = false;
+                       setTimeout(function () { estado = "READY"; if (ok) ok(); }, 10);
                      },
     seekTo:          function (ms, ok, err) { log("seekTo", arguments); if (ok) setTimeout(ok, 5); },
     setDisplayRect:  function (x, y, w, h) { log("setDisplayRect", arguments); },
@@ -49,6 +49,11 @@
     setExternalSubtitlePath: function (p) { log("setExternalSubtitlePath", arguments); },
     getTotalTrackInfo: function () {
       log("getTotalTrackInfo", arguments);
+      // Samsung permits READY here only after synchronous prepare(). A fake
+      // that accepts every call cannot detect an invalid production sequence.
+      if (estado !== "PLAYING" && estado !== "PAUSED" &&
+          !(estado === "READY" && preparoSincrono))
+        throw new Error("InvalidStateError: getTotalTrackInfo");
       return [
         { index: 0, type: "VIDEO", extra_info: '{"fourCC":"HEVC","Width":3840,"Height":2160}' },
         { index: 1, type: "AUDIO", extra_info: '{"language":"eng","fourCC":"EAC3","channels":6}' },

@@ -52,10 +52,8 @@ void nv_teste_avplay_fase2(void) {
   fflush(stdout);
 }
 
-// video_bombear() e chamado por app_atualizar (app.c:642), MAS depois de seis
-// `return` que cobrem login, escolha de perfil e algumas transicoes. Num teste
-// sintetico o app fica parado na escolha de perfil e o bombear nunca roda, o
-// que estrangula o seek amortecido. Aqui o teste bombeia por conta propria.
+// Gatilho manual para testes que nao executam o laco do app. app_atualizar
+// agora bombeia antes dos retornos de login/perfis/transicoes.
 EMSCRIPTEN_KEEPALIVE
 void nv_teste_bombear(void) { video_bombear(); }
 
