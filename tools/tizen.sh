@@ -122,6 +122,10 @@ eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   `# tela de login — que e onde a TV travou com o pool em 4.` \
   -pthread -sPTHREAD_POOL_SIZE=12 -sPTHREAD_POOL_SIZE_STRICT=0 \
   -sEXPORTED_FUNCTIONS='["_main","_malloc","_free"]' \
+  `# PThread exportado para o medidor de fios de tizen-shell.html. NAO e` \
+  `# opcional: sem o export, LER a variavel dispara o abort() do runtime` \
+  `# ("'PThread' was not exported"), ou seja, o proprio medidor mataria o app.` \
+  -sEXPORTED_RUNTIME_METHODS='["PThread"]' \
   -lidbfs.js \
   -sEXIT_RUNTIME=0 -sASSERTIONS="${NUVIO_ASSERTS:-1}" \
   --preload-file deploy/app/fonts@/app/fonts \

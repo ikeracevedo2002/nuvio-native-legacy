@@ -162,6 +162,42 @@
     }
   } catch (e) {}
 
+  // MEDIDOR DE WORKERS. Existe porque a TV travou DE VEZ — nem a tecla
+  // vermelha respondia, e o listener dela e JS no fio principal. Isso nao e
+  // aborto (aborto aparece como erro no painel): e o FIO PRINCIPAL BLOQUEADO.
+  //
+  // A causa documentada mais provavel para esse quadro no Emscripten e o pool
+  // de pthreads esgotado: quando nao ha worker livre, criar um exige que o fio
+  // principal volte ao laco de eventos; se ele estiver esperando justamente
+  // esse fio, ninguem anda. O app tem 41 pontos de pthread_create.
+  //
+  // Em vez de chutar um numero para o pool de novo — ja errei duas vezes assim
+  // nesta investigacao — isto MEDE. PThread.runningWorkers e unusedWorkers sao
+  // do proprio runtime. Se "livres" chegar a zero antes do travamento, o pool e
+  // a causa e o numero certo sai da medicao. Se nunca chegar perto, nao e o
+  // pool e eu procuro em outro lugar.
+  //
+  // O log sai a cada 3 s, junto do relatorio de fps, e vai para o console — que
+  // o `sdb dlog` carrega mesmo depois de o painel congelar.
+  setInterval(function () {
+    try {
+      // Pelo Module, nunca pela global: ler a global de um simbolo NAO
+      // exportado dispara o abort() do runtime, e o medidor mataria o app.
+      // Este emscripten expoe unusedWorkers, e NAO runningWorkers — a primeira
+      // versao disto testava runningWorkers e saia calada, sem imprimir nada.
+      // O que interessa e justamente o numero de LIVRES: e ele que chega a zero
+      // quando o pool vira o teto.
+      var PT = Module.PThread;
+      if (!PT || !PT.unusedWorkers) return;
+      var livres = PT.unusedWorkers.length;
+      var pth = PT.pthreads ? Object.keys(PT.pthreads).length : -1;
+      var t = "[fios] livres=" + livres + " vivos=" + pth +
+              (livres === 0 ? "  <<< POOL NO LIMITE" : "");
+      console.log(t);
+      if (window.__nvDiag) window.__nvDiag(t, livres === 0);
+    } catch (e) {}
+  }, 3000);
+
   // TECLA VERMELHA = mostra/esconde o painel de diagnostico. Ela ja e
   // registrada acima (ColorF0Red) e o app nao a usa para mais nada. Num
   // aparelho sem DevTools a mao, e o unico jeito de ler o log depois que a
