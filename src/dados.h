@@ -82,3 +82,8 @@ const char *dados_cliente_id(void);
 void dados_uuid(char *dst, unsigned tam);
 
 #endif
+
+// 0 quando NADA do que o app grava sobrevive ao fechamento. So acontece no
+// alvo Tizen, quando o IDBFS nao monta — e sem ele Trakt, progresso e sync
+// gravam na RAM e somem. Aparece no relatorio de 3 s por isso.
+int dados_persistente(void);

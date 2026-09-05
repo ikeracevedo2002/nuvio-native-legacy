@@ -81,6 +81,19 @@ static long orcamento = 0;
 // Sem este numero nao da para dizer se a travada depois de muito uso e o cache
 // de disco crescendo ou outra coisa.
 static long cacheDiscoBytes = 0;
+// TETO DO CACHE DE DISCO, so no alvo Tizen. La o "disco" e MEMFS, ou seja RAM:
+// medido na TV, chegou a 280 MB so navegando, mais do que o heap inteiro do
+// app (256 MiB) e invisivel a todos os outros contadores. No LG o cache e disco
+// de verdade e nao precisa de teto nenhum.
+//
+// 48 MB e o que cabe sem competir com o heap e ainda segura algumas telas de
+// arte ja baixada. NAO e numero medido: e o teto que falta ser calibrado com o
+// cache-disco= do relatorio, e por isso ele continua no log.
+#ifdef __EMSCRIPTEN__
+#define NV_CACHE_DISCO_MAX (48L * 1024L * 1024L)
+#else
+#define NV_CACHE_DISCO_MAX (1L << 60)   /* sem teto: disco de verdade */
+#endif
 static unsigned long quadroAtual = 1;
 
 // O driver tambem aloca a piramide de mipmaps. Contar apenas o nivel base
@@ -679,11 +692,20 @@ static int threadDecode(void *arg) {
     //
     // So no Emscripten: no LG o cache e disco de verdade e apagar ali seria
     // trocar leitura local por rede.
-    // `conv` e nao `bruta`: bruta ja foi liberada logo acima, e testar um
-    // ponteiro liberado funciona por acidente, nao por regra. conv tambem e o
-    // sinal certo — so apaga o arquivo quando ele DECODIFICOU; o que falhou e
-    // apagado no ramo de erro, com log.
-    if (conv) {
+    // APAGAR SO QUANDO PASSAR DO TETO, e nao sempre.
+    //
+    // A versao anterior apagava o arquivo depois de TODO decode, e isso foi
+    // REGRESSAO: o cache de disco existe justamente para nao rebaixar a arte
+    // quando a textura e despejada, e sem ele cada despejo virava um download
+    // novo. Com o recuo de 2 s/10 s/60 s em falha, a arte sumia por muito
+    // tempo — o dono viu a home carregando "muito lindo e rapido" no v10 e
+    // quebrada depois. Trocar 200 MB de RAM por arte que nao aparece nao e
+    // troca boa.
+    //
+    // O defeito real nunca foi guardar: era guardar SEM TETO. Agora guarda ate
+    // NV_CACHE_DISCO_MAX e, passando disso, o mais novo nao fica — o conjunto
+    // quente que ja esta em disco continua servindo.
+    if (conv && cacheDiscoBytes > NV_CACHE_DISCO_MAX) {
       long tam = 0;
       { FILE *g = fopen(caminho, "rb");
         if (g) { fseek(g, 0, SEEK_END); tam = ftell(g); fclose(g); } }

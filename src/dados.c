@@ -109,6 +109,7 @@ EM_JS(void, nv_idbfs_rede_de_seguranca, (int *ocupado), {
 // dele — ou o contrario, uma descarga por quadro, que e justamente o defeito
 // que esta funcao existe para remover.
 static volatile int sujo, sujoLeve;
+static int idbfsMontado = 0;
 
 // Espera minima entre duas descargas de dado do USUARIO. A varredura sincrona
 // da arvore custa quase o mesmo tendo mudado um arquivo ou trinta, entao
@@ -198,8 +199,22 @@ void dados_iniciar(const char *dirArte) {
   // uma linha de log sequer.
   if (nv_idbfs_montar("/nuvio")) {
     candidatos[n++] = "/nuvio";
+    idbfsMontado = 1;
     nv_idbfs_rede_de_seguranca((int *)&fsOcupado);
-  } else printf("[dados] IDBFS nao montou: a sessao nao sobrevive a recarga\n");
+  } else {
+    // ESTA LINHA ROLAVA DO PAINEL e o defeito passava por outra coisa.
+    //
+    // Sem IDBFS nada persiste: Trakt reautentica a cada abertura, progresso nao
+    // e gravado e o sync nao tem o que empurrar — os tres sintomas que o dono
+    // relatou juntos. E o widget roda em origem file:// (os rastros de erro
+    // mostram file:///index.js), onde o Chromium BLOQUEIA IndexedDB; entao esta
+    // e uma falha esperada neste alvo, nao um acidente.
+    //
+    // Por isso o estado passa a sair TAMBEM no relatorio de 3 s, onde nao rola:
+    // um estado assim precisa ser visivel o tempo todo, nao uma vez no arranque.
+    printf("[dados] IDBFS NAO MONTOU: nada persiste — Trakt, progresso e sync\n"
+           "        morrem ao fechar. Origem file:// bloqueia IndexedDB.\n");
+  }
 #endif
   if (env && *env) candidatos[n++] = env;
   if (home && *home) {
@@ -354,4 +369,12 @@ const char *dados_cliente_id(void) {
     snprintf(linha, sizeof linha, "%s\n", clienteId);
     dados_gravar("cliente.txt", linha); }
   return clienteId;
+}
+
+int dados_persistente(void) {
+#ifdef __EMSCRIPTEN__
+  return idbfsMontado;
+#else
+  return 1;   /* disco de verdade */
+#endif
 }

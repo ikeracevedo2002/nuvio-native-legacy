@@ -669,11 +669,12 @@ int main(int argc, char **argv) {
       // da pior. Sem estes dois numeros nao ha como distinguir "o pico sumiu" de
       // "o pico mudou de fase" — foi essa descarga que produziu os 100 ms.
       printf("FPS=%.1f pior=%.1fms janks=%d | pior-quadro: texto %.1fms em %d linhas"
-             " | texturas=%d pend=%d %.1fMB | despejos=%d | idbfs=%d/%.1fms | cache-disco=%.1fMB\n",
+             " | texturas=%d pend=%d %.1fMB | despejos=%d | idbfs=%d/%.1fms | cache-disco=%.1fMB%s\n",
              quadros * 1000.0 / (double)(agora - ultRelato), pior, janks,
              piorTxtMs, piorTxtN, itens, pend, bytes / 1048576.0, txt_despejos,
              dados_desc_n, dados_desc_ms,
-             tex_cache_disco_bytes() / 1048576.0);
+             tex_cache_disco_bytes() / 1048576.0,
+             dados_persistente() ? "" : "  <<< SEM PERSISTENCIA");
 #ifdef __EMSCRIPTEN__
       // Heap linear, nao RAM total do processo: GPU e memoria JS ficam fora.
       // uordblks inclui pilhas dos pthreads e dados alocados pelo malloc.

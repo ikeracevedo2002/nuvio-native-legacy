@@ -109,7 +109,17 @@ eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   `# uma vez — foi ela, e nao o ALLOW_MEMORY_GROWTH que eu acusei na epoca, que` \
   `# causava um "memory access out of bounds". Estouro de pilha nao avisa: com` \
   `# ASSERTIONS=0 o app morre calado, que e o sintoma na TV.` \
-  -sSTACK_SIZE=8388608 -sDEFAULT_PTHREAD_STACK_SIZE=8388608 \
+  `# PILHA DO FIO PRINCIPAL 8 MB, DOS WORKERS 2 MB — e a diferenca importa.` \
+  `# MEDIDO NA TV: malloc=60,3 MiB e livre-no-heap=85,5 MiB, ou seja 146 MiB` \
+  `# contabilizados, e mesmo assim o app abortou sem achar 28 MiB num heap de` \
+  `# 256. Os 110 MiB que faltavam na conta sao PILHA: 8 MB x 12 workers do pool` \
+  `# mais o fio principal = 104 MB reservados que nenhum contador mostra.` \
+  `#` \
+  `# Os 8 MB vieram de um estouro de pilha real deste projeto, mas aquele era no` \
+  `# FIO PRINCIPAL, que segue com 8. Worker daqui faz HTTP e decodifica imagem —` \
+  `# 2 MB e o proprio padrao do emscripten e sobra. Libera ~72 MB, que e mais do` \
+  `# que o app pedia quando morreu.` \
+  -sSTACK_SIZE=8388608 -sDEFAULT_PTHREAD_STACK_SIZE=2097152 \
   `# 32 KB de pilha do asyncify, o mesmo valor da bancada que roda. O laco de` \
   `# quadro desenrola por aqui a cada SwapWindow; 16 KB era aperto sem motivo.` \
   -sASYNCIFY -sASYNCIFY_STACK_SIZE=32768 \
