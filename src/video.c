@@ -361,34 +361,62 @@ static void esperar(int ms) { struct timespec t; t.tv_sec = ms / 1000;
 // com o que se esta afirmando. VUI segue H.273/HEVC: 9=BT.2020, 16=PQ
 // (SMPTE 2084) — e o par que HDR10 e DV pedem; SDR fica em 2 (unspecified),
 // que e o que sempre foi mandado e toca.
+// Versao maior do webOS desta TV. Importa porque o pipeline RENOMEOU campos na
+// 5.0 e um campo com nome errado e ignorado em silencio — nada falha, o HDR so
+// nao liga. Conferido no Kodi (MediaPipelineWebOS.cpp, SetHDR):
+//   hdrData[m_webOSVersion < 5 ? "mediaSei" : "sei"] = sei;
+//   hdrData[m_webOSVersion < 5 ? "mediaVui" : "vui"] = vui;
+// /etc/starfish-release da a linha "Rockhopper release 4.10.2-31 (...)" — o
+// numero depois de "release" e o que vale. Sem o arquivo, a ausencia da
+// libAcbAPI ja e prova de 5+, porque foi nela que a LG apagou a lib.
+static int webosMaior(void) {
+  static int v;
+  if (v) return v;
+  { FILE *f = fopen("/etc/starfish-release", "r");
+    if (f) {
+      char linha[256];
+      while (fgets(linha, sizeof linha, f)) {
+        const char *r = strstr(linha, "release ");
+        if (r && sscanf(r + 8, "%d", &v) == 1 && v > 0) break;
+        v = 0;
+      }
+      fclose(f);
+    } }
+  if (!v) v = expWin[0] ? 5 : 4;
+  return v;
+}
+
 static void montarVideoData(char *vd, size_t n, const char *ctx,
                             const char *htipo, int prim, int trans, int matriz) {
   const char *varr = strstr(vidVarredura, "inter") ? "VIDEO_INTERLACED"
                    : "VIDEO_PROGRESSIVE";
+  const char *kSei = webosMaior() < 5 ? "mediaSei" : "sei";
+  const char *kVui = webosMaior() < 5 ? "mediaVui" : "vui";
   char cor[768] = "";
   if (!strcmp(htipo, "HDR10")) {
     snprintf(cor, sizeof cor,
-      "\"mediaSei\":{\"displayPrimariesX0\":%ld,\"displayPrimariesX1\":%ld,"
+      "\"%s\":{\"displayPrimariesX0\":%ld,\"displayPrimariesX1\":%ld,"
       "\"displayPrimariesX2\":%ld,\"displayPrimariesY0\":%ld,"
       "\"displayPrimariesY1\":%ld,\"displayPrimariesY2\":%ld,"
       "\"maxContentLightLevel\":%ld,\"maxDisplayMasteringLuminance\":%ld,"
       "\"maxPicAverageLightLevel\":%ld,\"minDisplayMasteringLuminance\":%ld,"
       "\"whitePointX\":%ld,\"whitePointY\":%ld},"
-      "\"mediaVui\":{\"colorPrimaries\":%d,\"matrixCoeffs\":%d,"
+      "\"%s\":{\"colorPrimaries\":%d,\"matrixCoeffs\":%d,"
       "\"transferCharacteristics\":%d,\"videoFullRangeFlag\":false},",
-      seiX0, seiX1, seiX2, seiY0, seiY1, seiY2, seiMaxCLL, seiMaxLum,
+      kSei, seiX0, seiX1, seiX2, seiY0, seiY1, seiY2, seiMaxCLL, seiMaxLum,
       seiMaxFALL, seiMinLum, seiBrancoX, seiBrancoY,
-      prim, matriz, trans);
+      kVui, prim, matriz, trans);
   } else if (!strcmp(htipo, "none")) {
     snprintf(cor, sizeof cor,
-      "\"mediaSei\":{\"displayPrimariesX0\":0,\"displayPrimariesX1\":0,"
+      "\"%s\":{\"displayPrimariesX0\":0,\"displayPrimariesX1\":0,"
       "\"displayPrimariesX2\":0,\"displayPrimariesY0\":0,"
       "\"displayPrimariesY1\":0,\"displayPrimariesY2\":0,"
       "\"maxContentLightLevel\":0,\"maxDisplayMasteringLuminance\":0,"
       "\"maxPicAverageLightLevel\":0,\"minDisplayMasteringLuminance\":0,"
       "\"whitePointX\":0,\"whitePointY\":0},"
-      "\"mediaVui\":{\"colorPrimaries\":2,\"matrixCoeffs\":2,"
-      "\"transferCharacteristics\":2,\"videoFullRangeFlag\":false},");
+      "\"%s\":{\"colorPrimaries\":2,\"matrixCoeffs\":2,"
+      "\"transferCharacteristics\":2,\"videoFullRangeFlag\":false},",
+      kSei, kVui);
   }
   snprintf(vd, n,
     //  - "context" com o mediaId TEM de vir no proprio JSON: o servico do
@@ -985,7 +1013,8 @@ int video_iniciar(void) {
     acbSink(acb, tipoSink);
   }
   ligado = 1;
-  printf("[video] pronto (acb=%ld janela=%s)\n", acb, expWin[0] ? expWin : "-");
+  printf("[video] pronto (webOS %d, acb=%ld, janela=%s)\n",
+         webosMaior(), acb, expWin[0] ? expWin : "-");
   fflush(stdout);
   return 1;
 }
