@@ -74,6 +74,25 @@ static int rodando = 0;
 // corruption" dentro do SDL: era falta de memoria, nao bug de ponteiro.
 static long bytesUsados = 0;
 static long orcamento = 0;
+// Pasta do cache de download. Declarada aqui e nao mais abaixo porque
+// noCache() precisa dela.
+static char dirCache[512];
+// SO PODE APAGAR O QUE ESTA NO NOSSO CACHE DE DOWNLOAD.
+//
+// Esta funcao existe porque eu apaguei arte do PACOTE. As duas remocoes que
+// acrescentei nesta rodada (o arquivo que nao decodifica, e o teto do cache em
+// MEMFS) rodavam sobre `caminho` sem olhar de onde ele vinha — e icones e
+// badges vem do --preload-file, em /app/art/icones, que nao e cache: e o
+// pacote. Apagado dali, o icone NAO TEM COMO VOLTAR, porque nao ha URL para
+// rebaixar. O sintoma foi exatamente esse: "os icones pararam de carregar".
+//
+// O ramo de falha que ja existia no arquivo sempre teve esta guarda, com o
+// comentario "So apaga o que esta no NOSSO cache". Eu escrevi duas remocoes
+// novas ao lado dela e nao a repeti.
+static int noCache(const char *caminho) {
+  return dirCache[0] && caminho &&
+         !strncmp(caminho, dirCache, strlen(dirCache));
+}
 // Bytes gravados no cache de disco. No alvo Tizen "disco" e MEMFS, ou seja RAM
 // (o log mostra idbfs=0/0.0ms), e nada nunca e apagado — cada arte baixada fica
 // na memoria pelo resto da sessao. Isso nao aparecia em lugar nenhum: nem no
@@ -386,7 +405,6 @@ void tex_escala(float e) {
   if (e > 0.1f && e < 8.0f) escalaBuf = e;
 }
 
-static char dirCache[512];
 
 void tex_cache_dir(const char *dir) {
   if (!dir || !*dir) return;
@@ -705,7 +723,7 @@ static int threadDecode(void *arg) {
     // O defeito real nunca foi guardar: era guardar SEM TETO. Agora guarda ate
     // NV_CACHE_DISCO_MAX e, passando disso, o mais novo nao fica — o conjunto
     // quente que ja esta em disco continua servindo.
-    if (conv && cacheDiscoBytes > NV_CACHE_DISCO_MAX) {
+    if (conv && cacheDiscoBytes > NV_CACHE_DISCO_MAX && noCache(caminho)) {
       long tam = 0;
       { FILE *g = fopen(caminho, "rb");
         if (g) { fseek(g, 0, SEEK_END); tam = ftell(g); fclose(g); } }
@@ -799,7 +817,7 @@ static int threadDecode(void *arg) {
       // corrompido — a assinatura foi conferida no download —, e mante-lo
       // significa que esta arte NUNCA mais carrega, nem depois de o problema
       // que a truncou passar. Apagando, o proximo pedido baixa de novo.
-      remove(caminho);
+      if (noCache(caminho)) remove(caminho);
       fflush(stdout);
       // Arquivo LOCAL que nao decodifica esta envenenado: garantirLocal o
       // aceita para sempre por ter mais de 512 bytes, entao sem apagar aqui o
