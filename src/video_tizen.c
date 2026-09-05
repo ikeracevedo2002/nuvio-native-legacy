@@ -728,10 +728,51 @@ void video_janela(int x, int y, int w, int h) {
 // quadro 16:9 mantem a barra preta embutida. Preferi perder o zoom a fingir que
 // ele existe — inflar o destino para alem da tela seria o outro caminho, e e
 // justamente o que APAGA o plano na LG.
+// RECORTE EMULADO PELO RETANGULO DE DESTINO.
+//
+// O webOS recorta pela FONTE: o ACB aceita (sx,sy,sw,sh) do quadro decodificado
+// mais um destino, e os modos de aspecto do player saem disso. O AVPlay NAO TEM
+// retangulo de fonte — so setDisplayRect. A primeira versao disto descartava a
+// fonte e aplicava so o destino, e o resultado era que TODO modo de aspecto
+// desenhava o mesmo retangulo: na TV o botao de recorte nao mudava nada, em
+// nenhum modo. Foi assim que o defeito apareceu.
+//
+// A conta que substitui: desenhar o recorte (sx,sy,sw,sh) dentro de (dx,dy,dw,dh)
+// e o MESMO que desenhar o quadro INTEIRO num retangulo maior, deslocado para
+// que o pedaco desejado caia sobre o destino.
+//
+//   escala = dw/sw            (quanto a fonte e ampliada)
+//   W = qw * escala           (o quadro inteiro nessa escala)
+//   X = dx - sx * escala      (recua a origem para o recorte cair em dx)
+//
+// O que sobra para fora da tela e o que o recorte descartaria.
+//
+// NAO VERIFICADO se o firmware aceita retangulo que sai da tela (X negativo, W
+// maior que 1920). Se ele grampear ao tamanho da tela, o zoom continua sem
+// efeito — mas ai a causa e outra, e o log abaixo mostra o retangulo pedido
+// para nao ser preciso adivinhar de novo.
 void video_janela_fonte(int sx, int sy, int sw, int sh,
                         int dx, int dy, int dw, int dh) {
-  (void)sx; (void)sy; (void)sw; (void)sh;
-  video_janela(dx, dy, dw, dh);
+  double qw = video_largura(), qh = video_altura();
+  double ex, ey;
+  int X, Y, W, H;
+
+  // Sem as dimensoes do quadro, ou sem recorte de verdade, o destino cru serve.
+  if (qw < 2.0 || qh < 2.0 || sw <= 0 || sh <= 0) { video_janela(dx, dy, dw, dh); return; }
+  // Recorte que cobre o quadro inteiro E o caso sem zoom: mesma coisa.
+  if (sx <= 0 && sy <= 0 && sw >= (int)qw && sh >= (int)qh) { video_janela(dx, dy, dw, dh); return; }
+
+  ex = (double)dw / (double)sw;
+  ey = (double)dh / (double)sh;
+  W  = (int)(qw * ex + 0.5);
+  H  = (int)(qh * ey + 0.5);
+  X  = (int)(dx - sx * ex + 0.5);
+  Y  = (int)(dy - sy * ey + 0.5);
+
+  printf("[video] recorte %d,%d %dx%d de %.0fx%.0f -> plano %d,%d %dx%d\n",
+         sx, sy, sw, sh, qw, qh, X, Y, W, H);
+  fflush(stdout);
+  video_janela(X, Y, W, H);
 }
 
 double video_pos(void)        { return posSeg; }
