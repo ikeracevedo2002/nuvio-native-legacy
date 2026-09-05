@@ -108,10 +108,24 @@ static void *buscar(void *arg) {
           (!departamento[0] || eDirecao(departamento))) {
         id = (long)js_num(r, fr, "id", 0.0);
         if (js_texto(r, fr, "profile_path", cam, sizeof cam) && cam[0] == '/')
-          // w500 fica borrado quando o retrato sobe para o hero/detalhe da TV.
-          // A origem original preserva cabelo, olhos e recorte; o cache limita
-          // o decode ao tamanho real de desenho, então não pesa a tela inteira.
-          snprintf(foto, sizeof foto, "https://image.tmdb.org/t/p/original%s", cam);
+          // w500 e nao original, e a razao anterior estava ERRADA.
+          //
+          // O comentario que estava aqui dizia que "o cache limita o decode ao
+          // tamanho real de desenho, entao nao pesa a tela inteira". O cache
+          // limita a TEXTURA FINAL (NV_TEX_LARG_MAX 640, ou 1920 no hero); o
+          // DECODE acontece sempre em tamanho cheio, e so depois a imagem e
+          // reduzida. Um retrato `original` do TMDB tem por volta de 2000x3000,
+          // o que da 24 MB em ABGR8888 numa alocacao unica.
+          //
+          // MEDIDO NA TV: com o heap FIXO em 256 MiB (o aparelho aceita
+          // reservar mas recusa crescer), depois de ~90 s de navegacao o app
+          // abortou pedindo 31,5 MiB contiguos — exatamente uma imagem dessas.
+          // malloc marcava 100 MiB e havia 59,5 MiB livres no heap, ou seja,
+          // sobrava espaco mas nao CONTIGUO.
+          //
+          // Pedir menor resolve na origem: nao gasta rede, nao gasta decode e
+          // nao depende de o heap ter um bloco grande inteiro.
+          snprintf(foto, sizeof foto, "https://image.tmdb.org/t/p/w500%s", cam);
           { const char *k = js_array(r, fr, "known_for"); size_t z = 0; int n = 0;
           while (k && n < 4) {
             const char *fk = js_fim(k); char t[96] = "";
@@ -119,7 +133,12 @@ static void *buscar(void *arg) {
             if (!hero[0]) {
               char camHero[128] = "";
               if (js_texto(k, fk, "backdrop_path", camHero, sizeof camHero) && camHero[0] == '/')
-                snprintf(hero, sizeof hero, "https://image.tmdb.org/t/p/original%s", camHero);
+                // w1280 e nao original: o teto do hero e 1920
+                // (NV_TEX_HERO_LARG_MAX) e um backdrop `original` do TMDB e
+                // 3840x2160, que decodifica em 33 MB. w1280 custa 3,7 MB — nove
+                // vezes menos — para uma diferenca que a distancia de sofa nao
+                // paga. Ver a nota acima sobre decode x textura final.
+                snprintf(hero, sizeof hero, "https://image.tmdb.org/t/p/w1280%s", camHero);
             }
             if (t[0]) {
               if (z && z + 5 < sizeof conhecido) { memcpy(conhecido + z, " \xc2\xb7 ", 4); z += 4; }
