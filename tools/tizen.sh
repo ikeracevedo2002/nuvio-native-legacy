@@ -110,7 +110,15 @@ ARTE=$(bash tools/tizen-art.sh)
 # o emcc roda sem os argumentos seguintes — inclusive sem --preload-file — e o
 # build SAI, torto, sem arte nenhuma. Perdi uma rodada inteira nisso.
 
+# Chrome 76 tem BigInt em JS, mas NAO a passagem i64 entre JS e WASM
+# (Chrome 85). clock_gettime em marco_iniciar e a primeira chamada que a usa:
+# o modulo instancia e cria GL, depois falha com "wasm function signature
+# contains illegal type". esbuild nao altera a ABI do .wasm; WASM_BIGINT=0
+# faz o emcc converter esses parametros para pares de i32. Regressao:
+# tests/tizen-clock.sh, usando um V8 anterior ao suporte dessa integracao.
+
 eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
+  -sWASM_BIGINT=0 \
   -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sUSE_SDL_TTF=2 \
   -sSDL2_IMAGE_FORMATS='["png","jpg"]' \
   -sMAX_WEBGL_VERSION=1 \
