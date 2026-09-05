@@ -326,6 +326,9 @@ static void trocaDeTituloSeSolicitada(void) {
 }
 
 void app_atualizar(float dt, Uint32 agora) {
+  // O backend precisa progredir mesmo no login, perfis e transicoes que
+  // retornam cedo: seek pendente no Tizen e prazo de recuo DV no webOS.
+  video_bombear();
   if (tela == TELA_LOGIN) {
     login_atualizar(dt, agora);
     // A troca so acontece AQUI, quando a sessao existe de verdade — nao no
@@ -637,9 +640,6 @@ void app_atualizar(float dt, Uint32 agora) {
     }
   }
   episodios_atualizar(dt);
-  // Prazo do recuo de Dolby Vision: se a declaracao nao render imagem, o video
-  // recarrega sozinho sem ela. Precisa bater todo quadro (ver video.h).
-  video_bombear();
   // O player devolve 1 para a coluna de audio e 2 para a de legenda.
   { int q = player_pediu_faixas();
     if (q) faixas_abrir_em(q == 2 ? 1 : 0); }

@@ -215,14 +215,18 @@ EM_JS(double, nv_av, (const char *cmd, const char *txt,
     try {
       p.prepareAsync(function () {
         S.pronto = 1;
-        // A janela vai DEPOIS do prepare: antes dele o plano ainda nao existe
-        // e o retangulo se perde. Ordem observada no duble:
+        // Reaplica o retangulo apos o preparo. A API tambem permite IDLE;
+        // o duble nao prova que uma chamada anterior se perderia na TV.
+        // Ordem deste callback:
         // open -> setListener -> setDisplayMethod -> prepareAsync ->
-        // setDisplayRect -> play.
+        // setDisplayRect -> play -> getTotalTrackInfo.
         var r = paraTela(S.rect[0], S.rect[1], S.rect[2], S.rect[3]);
         try { p.setDisplayRect(r[0], r[1], r[2], r[3]); } catch (e) {}
-        // Dimensoes do quadro decodificado: e o que da a proporcao aos modos de
-        // zoom do player. So existem depois do prepare.
+        // READY permite getTotalTrackInfo apenas com prepare SINCRONO.
+        // Aqui usamos prepareAsync: entrar em PLAYING antes de ler metadados.
+        try { p.play(); S.tocando = 1; }
+        catch (e) { S.erro = "play: " + e; return; }
+        // Dimensoes usadas pelos modos de zoom do player.
         try {
           var tr = p.getTotalTrackInfo();
           for (var i = 0; i < tr.length; i++) {
@@ -233,7 +237,6 @@ EM_JS(double, nv_av, (const char *cmd, const char *txt,
             S.alt  = parseInt(x.Height || x.height || 0, 10) || 0;
           }
         } catch (e) {}
-        try { p.play(); S.tocando = 1; } catch (e) { S.erro = "play: " + e; }
       }, function (e) {
         S.erro = "prepare: " + e;
       });
@@ -286,8 +289,8 @@ EM_JS(double, nv_av, (const char *cmd, const char *txt,
     if (!dst || dstTam < 64) return 0;
     var p6 = pl();
     var dur = 0;
-    if (p6 && S.aberto) {
-      try { dur = (+p6.getTotalTime() || 0) / 1000.0; } catch (e) {}
+    if (p6 && S.aberto && S.pronto) {
+      try { dur = (+p6.getDuration() || 0) / 1000.0; } catch (e) {}
       // oncurrentplaytime cobre o caso normal; getCurrentTime cobre o instante
       // logo apos um seek, em que o evento ainda nao veio.
       try { var t = +p6.getCurrentTime(); if (t >= 0) S.posMs = t; } catch (e) {}
@@ -835,9 +838,9 @@ void video_legenda_externa(const char *url) {
 //
 // Os cinco metodos de estilo do uMS (setSubtitleFontSize, charColor, bgOpacity,
 // position, charEdgeType) nao tem par no AVPlay: a API de legenda dele e um
-// caminho de arquivo e o evento onsubtitlechange, nada de aparencia. O estilo
-// fica guardado porque quem desenha a legenda nesta TV e o overlay GL do app, e
-// e ele que le a folha — a mesma struct serve aos dois mundos.
+// caminho de arquivo e o evento onsubtitlechange. Esta copia ainda nao tem
+// consumidor: player.c usa seu proprio legEstilo para o overlay EXTERNO.
+// Legendas embutidas seguem o desenho nativo solicitado por leg_mudo=0.
 void video_legenda_estilo(const VideoLegendaEstilo *e) {
   if (!e) return;
   estilo = *e;
