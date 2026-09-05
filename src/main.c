@@ -2,6 +2,16 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include "gl_compat.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+// Alvos SEM webOS. O Mac ja pulava estes trechos por um ifndef __APPLE__;
+// o alvo Tizen (WASM) precisa pular exatamente os mesmos. Nomear a condicao
+// evita ter de lembrar de dois simbolos em cada ponto - sem isto o primeiro
+// build para o navegador ainda tentava abrir libwayland-client.so.0.
+#if defined(__APPLE__) || defined(__EMSCRIPTEN__)
+#define NV_SEM_WEBOS 1
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +38,7 @@
 #include "descoberta.h"
 #include "trakt.h"
 #include "player.h"
-#ifndef __APPLE__
+#ifndef NV_SEM_WEBOS
 #include <dlfcn.h>
 #include <SDL2/SDL_syswm.h>
 #endif
@@ -225,11 +235,29 @@ static void capturaSeSolicitado(void) {
   free(px);
 }
 
+#ifdef __EMSCRIPTEN__
+// Cede o controle ao navegador uma vez por quadro, ESPERANDO O rAF.
+//
+// A primeira versao usava emscripten_sleep(0), que vira setTimeout(0). MEDIDO
+// no Chrome: 0,5 FPS, com o proprio app relatando "pior=0.0ms" — o trabalho de
+// desenhar custava zero e o tempo inteiro era espera. Motivo: setTimeout numa
+// aba em segundo plano e estrangulado para uma chamada por segundo, e mesmo em
+// primeiro plano ele nao tem relacao nenhuma com o vsync.
+//
+// requestAnimationFrame e o unico relogio que o compositor do navegador
+// respeita. EM_ASYNC_JS suspende a funcao C (via ASYNCIFY) ate a promessa
+// resolver, entao o `while` do main continua sendo o laco do app — nada de
+// partir o corpo do quadro num callback.
+EM_ASYNC_JS(void, nv_ceder_quadro, (), {
+  await new Promise(function (r) { requestAnimationFrame(r); });
+});
+#endif
+
 int main(int argc, char **argv) {
   // Sem a identidade do app, o SDL do webOS registra a surface como "(null)" e
   // o compositor NAO exibe a janela — o app roda a 60fps desenhando para
   // ninguem. Medido: "Invalid appId specified OR Unsupported Application Type".
-#ifndef __APPLE__
+#ifndef NV_SEM_WEBOS
   setenv("APPID", "space.nuvio.native.legacy", 0);
   setenv("LS2_APPID", "space.nuvio.native.legacy", 0);
   setenv("SDL_VIDEODRIVER", "wayland", 0);
@@ -237,7 +265,7 @@ int main(int argc, char **argv) {
   // Lancado pelo SAM, stdout e stderr vao para /dev/null — toda a telemetria
   // (FPS, texturas, teclas) estava sendo descartada em silencio. Log em arquivo
   // e a unica forma de ler qualquer coisa de um app nativo em execucao normal.
-#ifndef __APPLE__
+#ifndef NV_SEM_WEBOS
   freopen("/tmp/nuvio.log", "w", stdout);
   freopen("/tmp/nuvio.log", "a", stderr);
 #endif
@@ -283,7 +311,13 @@ int main(int argc, char **argv) {
   // transparente, e o plano de video do aparelho — que fica ATRAS da janela e
   // so aparece pelo alpha — nunca poderia ser revelado.
   SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+#ifdef __EMSCRIPTEN__
+  // O navegador da TV ja entrega a pagina em tela cheia; pedir FULLSCREEN
+  // aqui exigiria um gesto do usuario e falharia em silencio.
+  Uint32 flags = SDL_WINDOW_OPENGL;
+#else
   Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN;
+#endif
 #endif
   // 4K NAO E POSSIVEL NESTE APARELHO — MEDIDO, nao presumido.
   //
@@ -311,7 +345,7 @@ int main(int argc, char **argv) {
   // App de TV nao tem ponteiro: o cursor por cima da interface polui a leitura
   // e some sozinho no aparelho, mas nao no Mac.
   SDL_ShowCursor(SDL_DISABLE);
-#ifndef __APPLE__
+#ifndef NV_SEM_WEBOS
   // Declara a superficie NAO-opaca. Por padrao o compositor trata a janela como
   // opaca e descarta o canal alpha inteiro — o furo do gfx_furo existiria no
   // framebuffer e mesmo assim nada apareceria atras dele.
@@ -376,6 +410,13 @@ int main(int argc, char **argv) {
     printf("framebuffer R%d G%d B%d A%d%s\n", r, g, b, a,
            a > 0 ? "" : "  <<< SEM ALPHA: video nao tem como aparecer"); }
 
+  // MARCOS FINOS DO ARRANQUE. Na TV Samsung o log parava exatamente na linha
+  // "framebuffer ..." acima e nada mais saia — sem erro, sem excecao. Entre
+  // aquele printf e o proximo havia quatro passos, todos triviais, e adivinhar
+  // qual custaria uma ida a TV por tentativa. Estes marcos custam uma linha
+  // cada e respondem de primeira.
+  printf("[arranque] viewport\n"); fflush(stdout);
+
   // Em tela retina o drawable e maior que a janela; sem ajustar o viewport, o
   // desenho ocupa um quarto da tela.
   SDL_GL_GetDrawableSize(win, &dw, &dh);
@@ -385,11 +426,15 @@ int main(int argc, char **argv) {
 
   // O relogio dos marcos comeca AQUI e nao no topo do main: o que vem antes e
   // parse de argumento e SDL_Init, que nao dependem de nada nosso.
+  printf("[arranque] marco_iniciar\n"); fflush(stdout);
   marco_iniciar();
+  printf("[arranque] rede_preparar\n"); fflush(stdout);
   // ANTES de tex_iniciar e de app_iniciar, que sao quem cria os fios de rede.
   rede_preparar();
+  printf("[arranque] gfx_iniciar (compila os shaders)\n"); fflush(stdout);
   marco("gfx_iniciar");
-  if (!gfx_iniciar()) return 1;
+  if (!gfx_iniciar()) { printf("[arranque] gfx_iniciar FALHOU\n"); fflush(stdout); return 1; }
+  printf("[arranque] gfx_iniciar ok\n"); fflush(stdout);
   // fonts/ fica ao lado de art/: derruba o ultimo componente do caminho da arte
   char dirRec[512];
   snprintf(dirRec, sizeof dirRec, "%s", dirArte);
@@ -426,15 +471,34 @@ int main(int argc, char **argv) {
   // Progresso e dado DO USUARIO: sai da pasta do pacote, que e a mesma para
   // todo mundo que usar o aparelho, e passa para a pasta da instalacao.
   if (dados_dir()[0]) cat_dir_gravacao(dados_dir());
+
+  // DUAS PASTAS, e nao uma.
+  //
+  // `dirArte` e o PACOTE: so-leitura por definicao. No webOS isso era teorico
+  // (o .ipk instalado e gravavel em modo desenvolvedor) e por isso tudo cabia
+  // numa variavel so. No alvo Tizen deixou de ser: o .wgt e so-leitura de
+  // verdade, e no build de hoje /app/art vem de --preload-file, ou seja MEMFS,
+  // que e APAGADO a cada recarga. Gravar la nao falha — e o pior dos dois
+  // mundos, porque some sem erro.
+  //
+  // `dirDados` e a pasta descoberta por dados_iniciar: /nuvio (IDBFS) no Tizen,
+  // ~/.nuvio ou /media/developer/temp/nuvio nos outros. Quando nenhuma serve, a
+  // propria dados_iniciar ja escolheu dirArte como ultimo recurso e as duas
+  // voltam a coincidir — que e exatamente o comportamento de hoje.
+  const char *dirDados = dados_dir()[0] ? dados_dir() : dirArte;
+
   // A configuracao de addons mora junto da arte. Ausente, o app segue com a
-  // lista de exemplo — nunca fica sem nada para mostrar.
+  // lista de exemplo — nunca fica sem nada para mostrar. addons.c olha a pasta
+  // gravavel primeiro: a lista da CONTA e guardada la e sobrevive a recarga.
   addons_carregar(dirArte);
   // Ajustes tambem sao do USUARIO, nao do pacote.
-  ajustes_dir(dados_dir()[0] ? dados_dir() : dirArte);
-  { // As imagens vindas de URL ficam ao lado da arte do pacote. Uma vez
-    // baixadas valem para sempre: arte de filme nao muda.
+  ajustes_dir(dirDados);
+  { // As imagens vindas de URL vao para a pasta GRAVAVEL, e nao para o lado da
+    // arte do pacote. Uma vez baixadas valem para sempre (arte de filme nao
+    // muda), e "para sempre" no Tizen quer dizer IDBFS: em /app/art elas
+    // morriam na recarga e a home rebaixava tudo a cada arranque.
     char c[600];
-    snprintf(c, sizeof c, "%s/cache", dirArte);
+    snprintf(c, sizeof c, "%s/cache", dirDados);
     tex_cache_dir(c); }
   // Os icones da interface saem de art/icones (SVG do app web rasterizados).
   gfx_icones_dir(dirArte);
@@ -578,6 +642,14 @@ int main(int argc, char **argv) {
     fAux = NV_DT(t0);
     t0 = NV_T0();
     SDL_GL_SwapWindow(win);
+#ifdef __EMSCRIPTEN__
+    nv_ceder_quadro();
+    // Oferece ao IDBFS a chance de descarregar. Quase todo quadro isso e a
+    // leitura de duas bandeiras e um return: quem decide SE e quando descarregar
+    // e a politica em dados.c, porque descarregar a cada escrita era o que
+    // produzia os picos de 100 ms.
+    dados_sincronizar();
+#endif
     fSwap = NV_DT(t0);
     // PRIMEIRO PIXEL. E o numero que responde "quanto tempo ate a TV mostrar
     // alguma coisa", que nenhuma metrica de quadro dava.
@@ -591,10 +663,14 @@ int main(int argc, char **argv) {
     if (agora - ultRelato >= 3000) {
       int itens, pend; long bytes;
       tex_estatisticas(&itens, &pend, &bytes);
+      // `idbfs=N/X.Xms` e a descarga para o IndexedDB: quantas e o custo SINCRONO
+      // da pior. Sem estes dois numeros nao ha como distinguir "o pico sumiu" de
+      // "o pico mudou de fase" — foi essa descarga que produziu os 100 ms.
       printf("FPS=%.1f pior=%.1fms janks=%d | pior-quadro: texto %.1fms em %d linhas"
-             " | texturas=%d pend=%d %.1fMB | despejos=%d\n",
+             " | texturas=%d pend=%d %.1fMB | despejos=%d | idbfs=%d/%.1fms\n",
              quadros * 1000.0 / (double)(agora - ultRelato), pior, janks,
-             piorTxtMs, piorTxtN, itens, pend, bytes / 1048576.0, txt_despejos);
+             piorTxtMs, piorTxtN, itens, pend, bytes / 1048576.0, txt_despejos,
+             dados_desc_n, dados_desc_ms);
       fflush(stdout);
       // A MESMA linha vai para um arquivo. No aparelho a saida padrao do app
       // lancado pelo applicationManager nao chega a lugar nenhum que se possa
@@ -618,6 +694,7 @@ int main(int argc, char **argv) {
         } }
       quadros = 0; ultRelato = agora; pior = 0; janks = 0; piorTxtMs = 0; piorTxtN = 0;
       txt_despejos = 0;
+      dados_desc_zerar();
       pEv=pBomb=pUpd=pDes=pSwap=pAux=pClr=0;
       pGfxMs=pTexMs=pOutMs=0; pNRect=pNProg=pNBind=pNBusca=pNOut=0; pFill=0; pNCheio=0;
     }

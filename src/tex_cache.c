@@ -403,7 +403,14 @@ static int garantirLocal(const char *url, char *dst, size_t tam) {
   // escrita" de "resposta vazia". Nao repete o caso do HTTP >= 400, que agora
   // o rede.c nomeia sozinho.
   if (!corpo || n <= 512) {
-    if (corpo) { printf("[tex] corpo curto (%ld B): %.70s\n", n, url); fflush(stdout); }
+    // O printf ESTAVA DENTRO DE `if (corpo)`, o que calava justamente o caso
+    // mais comum: rede_baixar_bin devolvendo NULL. MEDIDO no alvo Tizen: 151
+    // downloads tentados, ZERO linha de log e zero textura — com o comentario
+    // logo acima afirmando que este ramo ja nao era mudo. Como nada guarda a
+    // falha, cada quadro pedia de novo as mesmas URLs, para sempre.
+    if (corpo) printf("[tex] corpo curto (%ld B): %.70s\n", n, url);
+    else       printf("[tex] download falhou (sem corpo): %.70s\n", url);
+    fflush(stdout);
     free(corpo);
     return 0;
   }
@@ -859,6 +866,28 @@ int tex_bombear(int max_por_quadro) {
   // Sem mipmap o filtro TEM de ser GL_LINEAR: com MIPMAP_NEAREST numa textura
   // sem piramide a amostragem e indefinida e a textura sai PRETA.
   int comMip = (sup->w < 1024);
+#ifdef __EMSCRIPTEN__
+  // WEBGL 1 RECUSA MIPMAP EM TEXTURA NAO-POTENCIA-DE-DOIS, e o preco e o card
+  // PRETO. glGenerateMipmap numa NPOT devolve GL_INVALID_OPERATION e nao gera
+  // piramide nenhuma; o MIN_FILTER logo abaixo continua pedindo
+  // GL_LINEAR_MIPMAP_NEAREST, a textura fica INCOMPLETA, e textura incompleta
+  // amostra preto. Sem erro em C, sem erro no log do app: a unica pista fica no
+  // console do navegador, "GL_INVALID_OPERATION: glGenerateMipmap: The texture
+  // is a non-power-of-two texture", que foi o dono quem abriu e viu.
+  //
+  // No webOS isto FUNCIONA porque o driver Mali expoe OES_texture_npot, que
+  // levanta a restricao. O WebGL 1 nao expoe essa extensao de jeito nenhum.
+  // Por isso a guarda e so do alvo Emscripten: mudar o comportamento no LG
+  // custaria a piramide da arte NPOT de la, que hoje serve o desfoque da pagina
+  // de detalhe e nao tem defeito nenhum.
+  //
+  // Coerente com o que o comentario acima ja avisava: "sem mipmap o filtro TEM
+  // de ser GL_LINEAR". Consequencia aceita: no Tizen a arte NPOT nao tem
+  // piramide, entao o desfoque da pagina de detalhe fica mais fraco nela.
+  { int lp = (sup->w > 0) && ((sup->w & (sup->w - 1)) == 0);
+    int ap = (sup->h > 0) && ((sup->h & (sup->h - 1)) == 0);
+    if (!lp || !ap) comMip = 0; }
+#endif
   if (comMip) glGenerateMipmap(GL_TEXTURE_2D);
   // MIPMAP_NEAREST e nao _LINEAR: o trilinear le DOIS niveis da piramide por
   // amostra, e nesta GPU isso e o dobro do custo de textura em cada pixel de

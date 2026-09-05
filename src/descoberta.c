@@ -69,7 +69,7 @@ void desc_tmdb(const char *dirArte) {
   // sem elenco, ficha, colecao e notas — e quase ninguem grava. A da conta,
   // quando existe, continua ganhando (desc_tmdb_definir chega depois).
 #ifdef NV_TMDB_API_KEY
-  if (!tmdbChave[0] && NV_TMDB_API_KEY[0]) { snprintf(tmdbChave, sizeof tmdbChave, "%s", NV_TMDB_API_KEY); printf("[desc] tmdb: chave do pacote\n"); }
+  if (!tmdbChave[0] && sizeof(NV_TMDB_API_KEY) > 1) { snprintf(tmdbChave, sizeof tmdbChave, "%s", NV_TMDB_API_KEY); printf("[desc] tmdb: chave do pacote\n"); }
 #endif
   snprintf(caminho, sizeof caminho, "%s/tmdb.txt", dirArte ? dirArte : ".");
   f = fopen(caminho, "r");
@@ -1177,9 +1177,17 @@ static void *montar(void *u) {
 }
 
 void desc_iniciar(void) {
-  if (buscando) return;
+  if (buscando) { printf("[desc] ja montando; pedido ignorado\n"); fflush(stdout); return; }
   buscando = 1;
-  if (pthread_create(&fio, NULL, montar, NULL) != 0) buscando = 0;
+  if (pthread_create(&fio, NULL, montar, NULL) != 0) {
+    // NAO FALHAR CALADO. No webOS um pthread_create nunca falhou e o caminho de
+    // erro era so uma bandeira; no alvo WASM o fio e um Worker do navegador,
+    // que E um recurso limitado e PODE acabar. Quando acaba, a home fica com o
+    // catalogo do pacote para sempre e nao ha uma linha no log dizendo por que.
+    buscando = 0;
+    printf("[desc] pthread_create FALHOU: o catalogo nao vai remontar\n");
+    fflush(stdout);
+  }
   else pthread_detach(fio);
 }
 

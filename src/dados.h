@@ -37,6 +37,39 @@ char *dados_ler(const char *nome);
 
 int dados_apagar(const char *nome);
 
+// Descarrega para o armazenamento persistente o que foi gravado desde a ultima
+// descarga. No webOS e no Mac nao faz nada: la o fopen ja escreveu em disco. No
+// alvo Tizen o arquivo esta em IndexedDB e so vai para la aqui.
+//
+// Chamar do LACO PRINCIPAL, uma vez por quadro, nao de fio de trabalho. A
+// funcao decide sozinha SE e hora de descarregar: quase todo quadro ela custa
+// uma leitura de dois inteiros e volta. Ver a politica em dados.c.
+void dados_sincronizar(void);
+
+// Diz que alguem gravou no sistema de arquivos por FORA de dados_gravar.
+// `leve` = 1 para conteudo re-obtivel (o cache de imagens de tex_cache.c), que
+// nao merece pagar uma descarga por si so: perder o ultimo poster baixado custa
+// um download, perder a sessao custa um login por QR.
+void dados_marcar_sujo(int leve);
+
+// TRAVA DO SISTEMA DE ARQUIVOS, para quem grava por fora deste modulo.
+//
+// So faz algo no alvo Tizen, e la nao e opcional: o "sistema de arquivos" do
+// WASM e uma estrutura JavaScript compartilhada entre os workers e NAO e segura
+// entre fios. Ver a nota longa em dados.c — o sintoma de ignorar isto foi o app
+// inteiro CONGELAR, sem erro nenhum. Envolver so as ESCRITAS e as remocoes;
+// leituras concorrentes com a descarga sao seguras e travar o decode de imagem
+// (30 ms) serializaria os fios de decodificacao a toa.
+void dados_fs_travar(void);
+void dados_fs_liberar(void);
+
+// Telemetria da descarga, para a linha de quadro de main.c: quantas descargas
+// desde o ultimo relatorio e o custo SINCRONO da pior delas em ms. Sem isto nao
+// ha como distinguir "o pico sumiu" de "o pico mudou de lugar".
+extern int    dados_desc_n;
+extern double dados_desc_ms;
+void dados_desc_zerar(void);
+
 // Identificador ESTAVEL desta instalacao, gerado na primeira execucao e
 // gravado. O sync do web manda isto em `p_origin_client_id` para o servidor nao
 // devolver ao aparelho a escrita que ele mesmo acabou de fazer — sem um id

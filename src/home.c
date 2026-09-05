@@ -797,6 +797,8 @@ static void sincronizarFileiras(void) {
   printf("[home] %d fileiras vindas do catalogo\n", nFileiras);
 }
 
+int home_tem_fileiras(void) { return nFileiras > 0; }
+
 void home_atualizar(float dt, Uint32 agora) {
   sincronizarFileiras();
 

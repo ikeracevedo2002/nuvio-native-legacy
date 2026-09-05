@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920,height=1080,user-scalable=no">
+<title>Nuvio</title>
+<style>
+  /* Fundo TRANSPARENTE de propriedade, nao por descuido. O AVPlay desenha num
+     plano de hardware ATRAS da pagina; o que se ve dele e exatamente o que a
+     pagina deixa passar. Um `background: #000` aqui apagaria o video inteiro e
+     o sintoma seria uma tela preta com a interface por cima — o mesmo defeito
+     que o app ja resolveu uma vez no webOS. */
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%;
+               overflow: hidden; background: transparent; }
+  /* O objeto do AVPlay ocupa a tela toda e fica na camada de baixo. Quem
+     recorta a area do video e o proprio AVPlay (setDisplayRect), nao o CSS. */
+  /* PAINEL DE DIAGNOSTICO NA TELA. Na TV nao ha DevTools a mao e o sintoma de
+     falha e TELA PRETA, que nao diz nada. Este painel transforma a tela preta
+     em texto que da para fotografar. Some sozinho quando o app desenha o
+     primeiro quadro; se nao sumir, o que estiver escrito nele E o defeito. */
+  #diag { position: absolute; left: 2%; top: 2%; right: 2%; z-index: 5;
+          font: 18px/1.45 monospace; color: #b8f5c0; white-space: pre-wrap;
+          background: rgba(0,0,0,.82); padding: 14px 18px; border-radius: 8px;
+          max-height: 92%; overflow: hidden; }
+  #diag .e { color: #ff8b7a; }
+  #avPlayerObject { position: absolute; inset: 0; width: 100%; height: 100%;
+                    z-index: 0; }
+  /* O BUFFER de desenho continua 1920x1080 (atributos width/height do
+     elemento); o que muda aqui e o TAMANHO EM TELA. Na TV os dois coincidem e
+     nada disto tem efeito. No desktop a janela e menor que 1920x1080, e sem
+     isto o navegador mostra o CANTO SUPERIOR ESQUERDO do canvas e corta o
+     resto — parece que o app desenhou errado, e ele desenhou certo.
+
+     !important porque o SDL escreve style.width/height no elemento ao criar a
+     janela; regra de folha de estilo com !important ganha do inline.
+
+     As quatro medidas juntas mantem 16:9 e cabem na janela: largura cheia
+     limitada pela altura, ou altura cheia limitada pela largura. */
+  #canvas { position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100vw !important; height: 56.25vw !important;
+            max-width: 177.78vh !important; max-height: 100vh !important;
+            z-index: 1; display: block; background: transparent;
+            outline: none; }
+</style>
+</head>
+<body>
+<!-- O AVPlay so existe se este objeto existir. Nao e decorativo: `webapis.avplay`
+     falha sem ele em varios firmwares. -->
+<object id="avPlayerObject" type="application/avplayer"></object>
+<div id="diag">Nuvio: iniciando…</div>
+<canvas id="canvas" width="1920" height="1080" tabindex="0"
+        oncontextmenu="event.preventDefault()"></canvas>
+<script>
+  // DIAGNOSTICO DE ARRANQUE, e ele sai ANTES de qualquer coisa do app.
+  //
+  // Na TV nao ha DevTools a mao, mas `sdb dlog` carrega o console. Quando o app
+  // da TELA PRETA nao ha nenhuma outra pista, e sem estas linhas a unica coisa
+  // que se sabe e "nao apareceu". Cada uma responde uma pergunta que ja custou
+  // rodada neste port:
+  //
+  //  - crossOriginIsolated / SharedArrayBuffer: os ~40 pthread_create do app
+  //    exigem SAB. No desktop eu sirvo com COOP/COEP; dentro de um .wgt NAO HA
+  //    CABECALHO HTTP NENHUM. Sem isolamento os workers nao sobem, o runtime
+  //    fica preso em "still waiting on run dependencies: loading-workers", e o
+  //    sintoma e exatamente tela preta depois de 100%.
+  //  - WebGL: o Chromium da TV e mais velho que o do desktop. Contexto recusado
+  //    ou shader que nao compila tambem da tela preta com o app "rodando".
+  //  - avplay: diz se o plano de video existe neste firmware.
+  (function () {
+    var painel = document.getElementById("diag");
+    var linhas = [];
+    function mostrar(txt, erro) {
+      linhas.push(erro ? '<span class="e">' + txt + "</span>" : txt);
+      // So as ultimas 34 linhas: a tela da TV nao tem mais que isso e o que
+      // importa e o FIM, onde o arranque parou.
+      if (linhas.length > 34) linhas = linhas.slice(-34);
+      if (painel) painel.innerHTML = linhas.join("\n");
+    }
+    window.__nvDiag = mostrar;
+    function d(k, v) { console.log("[NV-DIAG] " + k + " = " + v); mostrar(k + " = " + v); }
+    try {
+      d("userAgent", navigator.userAgent);
+      d("crossOriginIsolated", (typeof crossOriginIsolated !== "undefined") ? crossOriginIsolated : "indefinido");
+      d("SharedArrayBuffer", typeof SharedArrayBuffer);
+      d("hardwareConcurrency", navigator.hardwareConcurrency);
+      d("WebAssembly", typeof WebAssembly);
+      d("tela", screen.width + "x" + screen.height +
+               " / viewport " + window.innerWidth + "x" + window.innerHeight +
+               " / dpr " + window.devicePixelRatio);
+      d("avplay", (typeof webapis !== "undefined" && webapis && webapis.avplay) ? "presente" : "AUSENTE");
+      var cv = document.createElement("canvas");
+      var gl = cv.getContext("webgl", { alpha: true }) || cv.getContext("experimental-webgl", { alpha: true });
+      if (!gl) { d("WebGL", "CONTEXTO RECUSADO"); }
+      else {
+        d("WebGL", gl.getParameter(gl.VERSION));
+        d("WebGL/GLSL", gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+        d("WebGL/tamanho-max-textura", gl.getParameter(gl.MAX_TEXTURE_SIZE));
+        var a = gl.getContextAttributes && gl.getContextAttributes();
+        d("WebGL/alpha", a ? a.alpha : "?");
+        d("WebGL/npot", !!gl.getExtension("OES_texture_npot"));
+      }
+    } catch (e) { console.log("[NV-DIAG] falhou: " + e); }
+
+    // Erro nao capturado vira linha de log. Sem isto uma excecao no arranque
+    // some e so sobra a tela preta.
+    window.addEventListener("error", function (ev) {
+      var t = "ERRO: " + (ev.message || ev.type) +
+              " @ " + (ev.filename || "?") + ":" + (ev.lineno || 0);
+      console.log("[NV-ERRO] " + t); mostrar(t, 1);
+    });
+    window.addEventListener("unhandledrejection", function (ev) {
+      var t2 = "ERRO promessa: " + (ev.reason && ev.reason.message ? ev.reason.message : ev.reason);
+      console.log("[NV-ERRO] " + t2); mostrar(t2, 1);
+    });
+  })();
+
+  var Module = {
+    // argv[1] e a pasta de arte. main() deriva fonts/ dela derrubando o ultimo
+    // componente, entao /app/art => /app/fonts, que e onde o --preload-file
+    // monta as fontes.
+    arguments: ["/app/art"],
+    canvas: (function () { return document.getElementById("canvas"); })(),
+    print: function (t) {
+      console.log(t);
+      // O painel morre no primeiro quadro: dai em diante o app fala por si.
+      if (window.__nvDiag) {
+        window.__nvDiag(t);
+        if (t.indexOf("primeiro quadro na tela") >= 0) {
+          var p = document.getElementById("diag");
+          if (p) p.parentNode.removeChild(p);
+          window.__nvDiag = null;
+        }
+      }
+    },
+    printErr: function (t) { console.warn(t); if (window.__nvDiag) window.__nvDiag(t, 1); }
+  };
+
+  // Teclas do controle Samsung. Sem registrar, o firmware nao entrega nada alem
+  // das setas e do OK — as coloridas, as de midia e o Return sao engolidas
+  // pelo sistema. Equivale ao hint SDL_WEBOS_ACCESS_POLICY_KEYS_BACK do webOS.
+  try {
+    if (window.tizen && tizen.tvinputdevice) {
+      ["MediaPlay", "MediaPause", "MediaPlayPause", "MediaStop",
+       "MediaRewind", "MediaFastForward",
+       "ColorF0Red", "ColorF1Green", "ColorF2Yellow", "ColorF3Blue"]
+        .forEach(function (k) {
+          try { tizen.tvinputdevice.registerKey(k); } catch (e) {}
+        });
+    }
+  } catch (e) {}
+
+  // O SDL le o teclado do elemento com foco. Sem isto o app abre e nao responde
+  // ao controle, o que parece travamento e nao falta de foco.
+  window.addEventListener("load", function () {
+    var c = document.getElementById("canvas");
+    if (c) c.focus();
+  });
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

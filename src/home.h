@@ -35,6 +35,9 @@ typedef struct {
 int  home_iniciar(const char *dirArte);
 int  home_item_focado(HomeItem *out);      // 0 se o foco ainda nao foi desenhado
 int  home_n_artes(void);                   // acervo de backdrops, usado pelo detalhe
+// Ha fileira montada? Serve para o app saber que o catalogo CHEGOU depois do
+// arranque, e nao so que existia na hora de abrir.
+int  home_tem_fileiras(void);
 const char *home_arte(int i);
 const char *home_backdrop(int i);   // arte do titulo i do catalogo
 void home_evento(const SDL_Event *e);

@@ -56,6 +56,25 @@ void video_normalizar_url_legenda(const char *url, char *dst, unsigned tam) {
   memcpy(dst + antes + 4, q, sufixo + 1);
 }
 
+// ============================================================================
+// DAQUI PARA BAIXO, NADA COMPILA NO ALVO TIZEN (Emscripten).
+//
+// O corpo deste arquivo e LS2 + dlopen + libAcbAPI + libglib, e o navegador da
+// TV Samsung nao tem nenhuma dessas coisas. O problema e que TUDO ISSO COMPILA
+// sob o emcc — o dlfcn.h do Emscripten traz cotos de dlopen/dlsym que devolvem
+// NULL sem erro —, entao o alvo Tizen caia neste ramo por engano, linkava, e
+// ficava sem video sem uma unica linha de log dizendo por que. O corpo do alvo
+// Tizen mora em src/video_tizen.c, sobre a API AVPlay; e o mesmo padrao que
+// src/rede.c ja usa (la a libcurl por dlopen virou XHR).
+//
+// A GUARDA COMECA AQUI, e nao no topo do arquivo, de proposito: VIDEO_LEG_CORES
+// e video_normalizar_url_legenda, logo acima, sao codigo puro que os TRES alvos
+// usam — a folha de faixas desenha os rotulos das cores tambem no Mac. Empurrar
+// a guarda para o topo obrigaria a duplica-los no video_tizen.c, e duas copias
+// de uma tabela e uma copia para divergir da outra.
+// ============================================================================
+#ifndef __EMSCRIPTEN__
+
 // Declarada aqui porque o loadCompleted a chama muito antes de ela ser
 // definida. O clang do Mac aceita a implicita; o gcc do ARM recusa — e o ARM
 // que esta certo.
@@ -1673,3 +1692,5 @@ void video_encerrar(void) {
   ligado = 0;
 }
 #endif
+
+#endif  /* !__EMSCRIPTEN__ */

@@ -30,3 +30,7 @@ deploy/app/art/collections/
 # Rascunho do post: material de divulgacao, nao faz parte do projeto.
 POST-REDDIT.md
 .claude/
+
+# Saida do alvo Tizen (WASM). Regenerada por tools/tizen.sh.
+build/
+*.wgt

@@ -6,6 +6,223 @@
 #include <strings.h>
 #include <dlfcn.h>
 
+#ifdef __EMSCRIPTEN__
+// ---------------------------------------------------------------- EMSCRIPTEN
+// Caminho de rede do alvo Tizen (WASM).
+//
+// POR QUE NAO DA PARA REAPROVEITAR O DE BAIXO: o de baixo faz dlopen da libcurl
+// do aparelho. Nao existe dlopen em WebAssembly, e nao existe libcurl para
+// abrir. O emcc compila aquele codigo sem reclamar — dlfcn.h tem stubs — e o
+// unico sintoma e a tela de login dizendo "sem fio para falar com o servidor".
+//
+// POR QUE XHR SINCRONO E NAO emscripten_fetch: rede_url_final precisa do
+// ENDERECO FINAL depois dos redirecionamentos, para distinguir um link de
+// debrid que leva ao arquivo de um que leva a "downloading.mp4". emscripten_fetch
+// nao expoe isso; XHR expoe, em responseURL. Um mecanismo so, com cabecalhos,
+// status, Range e endereco final, e mais simples que dois.
+//
+// XHR sincrono BLOQUEIA o fio que chama, que e exatamente o contrato de
+// rede_baixar ("BLOQUEIA — chamar de um fio proprio"). Nos fios de trabalho ele
+// e plenamente suportado; no fio principal o navegador ainda o atende, com um
+// aviso no console.
+//
+// CORS: NO NAVEGADOR COMUM, ISTO NAO FUNCIONA E NAO E DEFEITO. Os hosts de
+// addon, o TMDB e o Supabase nao mandam Access-Control-Allow-Origin para uma
+// origem file://. Dentro do .wgt o Tizen dispensa a checagem para os endereços
+// declarados em <access origin="*"> no config.xml — e por isso que o fork em
+// JavaScript funciona na TV. Para testar no Chrome do desktop e preciso subir o
+// navegador com --disable-web-security ou por um proxy.
+//
+// timeout NAO E HONRADO: XHR sincrono proibe xhr.timeout (lanca
+// InvalidAccessError). O parametro `segundos` e aceito e ignorado; quem corta a
+// espera e o navegador.
+
+#include <emscripten.h>
+
+// Faz a requisicao e devolve um buffer de malloc com o corpo (com um NUL extra
+// no fim, para quem trata como texto). Escreve o tamanho em *tam e o status
+// HTTP em *status. Devolve 0 se a requisicao nem saiu.
+//
+// `cabs` vem como uma unica string com uma linha "Nome: valor" por cabecalho,
+// separadas por \n, porque atravessar um vetor de ponteiros por EM_JS custaria
+// mais codigo do que juntar e separar.
+EM_JS(char *, nv_http, (const char *metodo, const char *url, const char *cabs,
+                        const char *corpo, int *tam, int *status,
+                        char *urlFinal, int urlFinalTam), {
+  var m = UTF8ToString(metodo), u = UTF8ToString(url);
+  var xhr = new XMLHttpRequest();
+  try {
+    xhr.open(m, u, false);   // false = sincrono
+  } catch (e) { return 0; }
+  // Le a resposta como texto BRUTO, byte a byte. responseType='arraybuffer' é
+  // proibido em XHR sincrono no fio principal, e a mesma funcao serve os dois
+  // lados; este truque de charset entrega os bytes intactos em qualquer um.
+  try { xhr.overrideMimeType("text/plain; charset=x-user-defined"); } catch (e) {}
+  if (cabs) {
+    UTF8ToString(cabs).split("\n").forEach(function (linha) {
+      var i = linha.indexOf(":");
+      if (i <= 0) return;
+      try {
+        xhr.setRequestHeader(linha.slice(0, i).trim(), linha.slice(i + 1).trim());
+      } catch (e) {}
+    });
+  }
+  try {
+    xhr.send(corpo ? UTF8ToString(corpo) : null);
+  } catch (e) { return 0; }
+
+  if (status) HEAP32[status >> 2] = xhr.status;
+  if (urlFinal && urlFinalTam > 0) {
+    stringToUTF8(xhr.responseURL || "", urlFinal, urlFinalTam);
+  }
+
+  var s = xhr.responseText || "";
+  var n = s.length;
+  var p = _malloc(n + 1);
+  if (!p) return 0;
+  for (var i = 0; i < n; i++) HEAPU8[p + i] = s.charCodeAt(i) & 0xff;
+  HEAPU8[p + n] = 0;
+  if (tam) HEAP32[tam >> 2] = n;
+  return p;
+});
+
+long rede_teto = 0;
+
+void rede_preparar(void) { }   // nao ha biblioteca para carregar
+
+// Junta o vetor de cabecalhos numa string com uma linha por cabecalho.
+static char *juntarCabs(const char *const *cab, const char *extra) {
+  size_t total = 1;
+  int k;
+  char *s;
+  if (!cab && !extra) return NULL;
+  for (k = 0; cab && cab[k]; k++) total += strlen(cab[k]) + 1;
+  if (extra) total += strlen(extra) + 1;
+  s = (char *)malloc(total);
+  if (!s) return NULL;
+  s[0] = 0;
+  if (extra) { strcat(s, extra); strcat(s, "\n"); }
+  for (k = 0; cab && cab[k]; k++) { strcat(s, cab[k]); strcat(s, "\n"); }
+  return s;
+}
+
+static char *pedir(const char *metodo, const char *url, const char *const *cab,
+                   const char *extraCab, const char *corpo,
+                   long *tam, int *status) {
+  char *cabs, *corpoResp;
+  int n = 0, http = 0;
+  if (status) *status = 0;
+  if (!url || !*url) return NULL;
+  cabs = juntarCabs(cab, extraCab);
+  corpoResp = nv_http(metodo, url, cabs, corpo, &n, &http, NULL, 0);
+  free(cabs);
+  if (status) *status = http;
+  if (!corpoResp) { printf("[rede] falhou em %.60s\n", url); return NULL; }
+
+  // TETO: aqui ele so CORTA, nao interrompe.
+  //
+  // Na libcurl o teto abortava a conexao de dentro do recebedor, entao um
+  // servidor que ignora o Range parava de mandar. XHR sincrono nao tem esse
+  // ponto de corte: quando a chamada volta, o corpo INTEIRO ja veio. Um
+  // servidor que ignore o Range num arquivo de 20 GB baixaria os 20 GB antes
+  // desta linha rodar. Fica registrado como limitacao real deste alvo, nao como
+  // detalhe: se rede_baixar_trecho comecar a travar o app, e isto.
+  if (rede_teto > 0 && (long)n > rede_teto) {
+    n = (int)rede_teto;
+    corpoResp[n] = 0;
+  }
+
+  // Mesma regra do caminho da libcurl: 4xx vira NULL para quem NAO pediu
+  // status, e corpo devolvido para quem pediu — o corpo do erro do PostgREST e
+  // a unica pista de qual funcao ou tabela faltou.
+  if (http >= 400 && !status) {
+    free(corpoResp);
+    printf("[rede] HTTP %d em %.60s\n", http, url);
+    fflush(stdout);
+    return NULL;
+  }
+  if (tam) *tam = n;
+  return corpoResp;
+}
+
+char *rede_baixar(const char *url, int segundos) {
+  (void)segundos;
+  return pedir("GET", url, NULL, NULL, NULL, NULL, NULL);
+}
+
+char *rede_baixar_bin(const char *url, int segundos, long *tam) {
+  (void)segundos;
+  return pedir("GET", url, NULL, NULL, NULL, tam, NULL);
+}
+
+char *rede_baixar_com(const char *url, int segundos, const char *const *cab) {
+  (void)segundos;
+  return pedir("GET", url, cab, NULL, NULL, NULL, NULL);
+}
+
+char *rede_baixar_st(const char *url, int segundos, const char *const *cab,
+                     int *status) {
+  (void)segundos;
+  return pedir("GET", url, cab, NULL, NULL, NULL, status);
+}
+
+char *rede_baixar_trecho(const char *url, int segundos, long ini, long fim,
+                         long *tam) {
+  char faixa[80];
+  const char *cab[2];
+  char *r;
+  (void)segundos;
+  snprintf(faixa, sizeof faixa, "Range: bytes=%ld-%ld", ini, fim);
+  cab[0] = faixa; cab[1] = NULL;
+  rede_teto = fim - ini + 1;
+  r = pedir("GET", url, cab, NULL, NULL, tam, NULL);
+  rede_teto = 0;
+  return r;
+}
+
+char *rede_postar(const char *url, int segundos, const char *const *cab,
+                  const char *corpo) {
+  return rede_postar_st(url, segundos, cab, corpo, NULL);
+}
+
+char *rede_postar_st(const char *url, int segundos, const char *const *cab,
+                     const char *corpo, int *status) {
+  int temCt = 0, k;
+  char *r;
+  (void)segundos;
+  // JSON e o padrao (Supabase, Trakt); quem manda o proprio Content-Type
+  // (Real-Debrid quer form-urlencoded) nao recebe um segundo.
+  for (k = 0; cab && cab[k]; k++)
+    if (!strncasecmp(cab[k], "Content-Type:", 13)) temCt = 1;
+  r = pedir("POST", url, cab, temCt ? NULL : "Content-Type: application/json",
+            corpo ? corpo : "", NULL, status);
+  // Falha de TRANSPORTE continua sendo NULL; corpo de 4xx e devolvido. Um POST
+  // que respondeu com corpo vazio devolve "" e nao NULL, como no outro caminho.
+  if (!r && status && *status > 0) return strdup("");
+  return r;
+}
+
+int rede_url_final(const char *url, int segundos, char *dst, unsigned tam) {
+  const char *cab[2];
+  char *corpo;
+  int n = 0, http = 0;
+  char *cabs;
+  (void)segundos;
+  if (!url || !*url || !dst || tam == 0) return 0;
+  dst[0] = 0;
+  // Um pedaco minusculo em vez de HEAD, pelo mesmo motivo do outro caminho:
+  // servidores de debrid respondem HEAD com 405 ou mentem no redirecionamento,
+  // mas honram Range.
+  cab[0] = "Range: bytes=0-64"; cab[1] = NULL;
+  cabs = juntarCabs(cab, NULL);
+  corpo = nv_http("GET", url, cabs, NULL, &n, &http, dst, (int)tam);
+  free(cabs);
+  free(corpo);
+  return dst[0] ? 1 : 0;
+}
+
+#else
+
 // Constantes da libcurl escritas a mao: nao ha curl.h no SDK do aparelho, e
 // puxar o header inteiro so por meia duzia de numeros nao se paga. Os valores
 // sao estaveis desde sempre (CURLOPTTYPE_OBJECTPOINT = 10000 etc).
@@ -308,3 +525,5 @@ char *rede_postar_st(const char *url, int segundos, const char *const *cab,
   if (r != 0) { free(b.p); return NULL; }
   return b.p ? b.p : strdup("");
 }
+
+#endif  /* __EMSCRIPTEN__ */

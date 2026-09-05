@@ -522,9 +522,28 @@ int gfx_iniciar(void) {
   glUseProgram(progs[GFX_CARD].prog);
   progAtual = GFX_CARD;
 
-  static const GLfloat quad[] = { 0,0, 1,0, 0,1, 1,1 };
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
+  // O quad vai num BUFFER, nao num ponteiro para memoria do processo.
+  //
+  // GLES2 e o GL de desktop aceitam array do cliente em glVertexAttribPointer,
+  // e por isso isto funcionou na TV LG e no Mac durante todo o projeto. O
+  // WebGL NAO aceita: o alvo Tizen roda dentro do Chromium, que recusa cada
+  // desenho com "INVALID_OPERATION: drawArrays: no buffer is bound to enabled
+  // attribute" — em WARNING, sem parar nada. O app subia, media quadro, escrevia
+  // telemetria, e a tela ficava PRETA. Foi o primeiro defeito do port.
+  //
+  // O buffer e unico e fica ligado para sempre: todo desenho do app e este
+  // mesmo quad de 4 vertices, deformado pelo uniform uRect no vertex shader.
+  // Nenhum outro ponto do codigo liga GL_ARRAY_BUFFER, entao nao ha o que
+  // restaurar por quadro.
+  {
+    static const GLfloat quad[] = { 0,0, 1,0, 0,1, 1,1 };
+    GLuint vbo = 0;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (const void *)0);
+  }
   glEnable(GL_BLEND);
   // Blend SEPARADO para cor e alpha, e o GL_ONE do alpha nao e detalhe.
   //

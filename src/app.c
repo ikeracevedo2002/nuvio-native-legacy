@@ -735,6 +735,22 @@ void app_desenhar(Uint32 agora) {
   if (tela == TELA_LOGIN)          { login_desenhar(agora);     return; }
   if (tela == TELA_ESCOLHA_PERFIL) { perfilsel_desenhar(agora); return; }
 
+  // A HOME PODE FICAR PRONTA DEPOIS DO ARRANQUE, e ate agora ninguem reparava.
+  //
+  // homePronta saia de home_iniciar() e nunca mais era reavaliada. Num pacote
+  // COM arte prebaked ela nasce 1 e o defeito nao existe — que e o caso de todo
+  // pacote que este projeto ja montou. Num pacote SEM arte (o distribuivel, e o
+  // do alvo Tizen, onde o .wgt e read-only) ela nasce 0, o catalogo chega pelo
+  // sync segundos depois, home_atualizar monta as fileiras — e o app segue
+  // desenhando "Preparando seu catalogo..." para sempre, com 32 fileiras
+  // prontas atras. MEDIDO no navegador: "[home] 32 fileiras vindas do catalogo"
+  // no log, estado vazio na tela.
+  if (!homePronta && home_tem_fileiras()) {
+    homePronta = 1;
+    printf("[app] catalogo chegou depois do arranque: home liberada\n");
+    fflush(stdout);
+  }
+
   // Estado vazio de verdade, em vez de uma tela preta que parece travamento.
   if (!homePronta && tela == TELA_HOME && !player_aberto() && !detail_aberto()) {
     GfxRect fundo = { 0, 0, NV_TELA_W, NV_TELA_H };
