@@ -97,6 +97,19 @@ ARTE=$(bash tools/tizen-art.sh)
 # faz o emcc converter esses parametros para pares de i32. Regressao:
 # tests/tizen-clock.sh, usando um V8 anterior ao suporte dessa integracao.
 
+# COLETOR DE LOG OPCIONAL. Com NUVIO_LOG_URL setado, o shell recebe o endereco
+# e o app passa a MANDAR o log em vez de depender de foto da tela. Sem a
+# variavel o placeholder fica no arquivo e o envio nem e armado — desligado por
+# padrao porque log de app carrega titulo assistido e URL de fonte.
+#
+#   NUVIO_LOG_URL=http://192.168.1.10:8899/log bash tools/tizen.sh
+SHELL_USADO=tools/tizen-shell.html
+if [ -n "${NUVIO_LOG_URL:-}" ]; then
+  SHELL_USADO="$SAIDA/shell-com-log.html"
+  sed "s|@NUVIO_LOG_URL@|${NUVIO_LOG_URL}|" tools/tizen-shell.html > "$SHELL_USADO"
+  echo "tizen.sh: log sera enviado para $NUVIO_LOG_URL"
+fi
+
 eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   -sWASM_BIGINT=0 \
   -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sUSE_SDL_TTF=2 \
@@ -140,7 +153,7 @@ eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   -sEXIT_RUNTIME=0 -sASSERTIONS="${NUVIO_ASSERTS:-1}" \
   --preload-file deploy/app/fonts@/app/fonts \
   --preload-file "$ARTE"@/app/art \
-  --shell-file tools/tizen-shell.html
+  --shell-file "$SHELL_USADO"
 
 # REBAIXAR O GLUE PARA CHROMIUM 76 — sem isto o app NAO ARRANCA na TV.
 #
