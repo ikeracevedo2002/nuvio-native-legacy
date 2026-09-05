@@ -4,6 +4,8 @@
 #include "gl_compat.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/heap.h>
+#include <malloc.h>
 #endif
 // Alvos SEM webOS. O Mac ja pulava estes trechos por um ifndef __APPLE__;
 // o alvo Tizen (WASM) precisa pular exatamente os mesmos. Nomear a condicao
@@ -671,6 +673,14 @@ int main(int argc, char **argv) {
              quadros * 1000.0 / (double)(agora - ultRelato), pior, janks,
              piorTxtMs, piorTxtN, itens, pend, bytes / 1048576.0, txt_despejos,
              dados_desc_n, dados_desc_ms);
+#ifdef __EMSCRIPTEN__
+      // Heap linear, nao RAM total do processo: GPU e memoria JS ficam fora.
+      // uordblks inclui pilhas dos pthreads e dados alocados pelo malloc.
+      { struct mallinfo mi = mallinfo();
+        printf("[mem] WASM=%.1f MiB malloc=%.1f MiB livre-no-heap=%.1f MiB\n",
+               emscripten_get_heap_size() / 1048576.0,
+               mi.uordblks / 1048576.0, mi.fordblks / 1048576.0); }
+#endif
       fflush(stdout);
       // A MESMA linha vai para um arquivo. No aparelho a saida padrao do app
       // lancado pelo applicationManager nao chega a lugar nenhum que se possa

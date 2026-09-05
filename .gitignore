@@ -34,3 +34,6 @@ POST-REDDIT.md
 # Saida do alvo Tizen (WASM). Regenerada por tools/tizen.sh.
 build/
 *.wgt
+
+# Fotos da tela da TV, tiradas para ler o painel de diagnostico.
+*.heic

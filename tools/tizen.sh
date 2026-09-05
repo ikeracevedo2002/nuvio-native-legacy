@@ -59,37 +59,17 @@ ENV_D=$(tools/env.sh)
 # callback trocaria uma mudanca de 6 linhas por uma reescrita. O custo e
 # tamanho e um pouco de desempenho — ambos a medir na TV, nao a supor.
 #
-# 128 MB INICIAIS QUE CRESCEM ATE 512 MB — e isto e PALPITE, nao medicao.
+# 256 MiB RESERVADOS NO INICIO, SEM CRESCIMENTO.
+# A foto da TV de 2026-09-05 mostra o heap preso em 134217728 bytes:
+# Memory.grow e recusado, malloc falha e um novo pthread aborta no profiler.
+# Cada thread ativa reserva 8 MiB de pilha, alem de TLS; os workers do pool
+# ociosos nao equivalem a pilhas C alocadas. Arte, catalogo e imagens tambem
+# competem pelo heap. tests/tizen-memory.sh reproduz pressao sem crescimento.
+# 256 MiB passam no teste local; a reserva ainda precisa ser aceita na TV.
+# ABORTING_MALLOC evita prosseguir com NULL: este SDK usa malloc sem checar
+# em pthread_create, causando depois o enganoso erro de corrupcao no endereco 0.
+# Nao reduzir pilhas sem medir uso, nem reativar crescimento baseado so no Mac.
 #
-# A TV Samsung deu TELA PRETA depois de 100%. Nao sei a causa: nao ha aparelho
-# nesta bancada e ainda nao houve log de la. Uma das hipoteses baratas e que
-# 256 MB pedidos DE UMA VEZ, no arranque, sejam mais do que o firmware concede
-# a um widget — e nesse caso a instanciacao do WASM falha antes de qualquer
-# linha do app rodar, que e exatamente o sintoma. Comecar pequeno e crescer
-# contorna isso se a hipotese estiver certa, e nao custa nada se estiver errada.
-#
-# O que decide de verdade e o painel de diagnostico de tools/tizen-shell.html.
-# Se ele aparecer na tela, a memoria NAO era o problema e o texto dele diz o que
-# e. Se a tela continuar preta sem painel nenhum, o proprio HTML nao chegou a
-# rodar.
-#
-# NOTA HISTORICA, para nao voltar atras por engano: ALLOW_MEMORY_GROWTH com
-# -pthread ja foi suspeito de causar um "memory access out of bounds" neste
-# port. NAO ERA — troquei por memoria fixa e o defeito continuou; a causa era a
-# pilha de fio pequena. Entao crescer aqui nao reintroduz aquele bug.
-#
-# Crescer parece a escolha segura e AQUI E O DEFEITO. Com -pthread, quando a
-# memoria cresce as views JS (HEAPU8, HEAP32) dos OUTROS fios ficam obsoletas.
-# O emcc avisa disso e o aviso e facil de ignorar, porque nada quebra no
-# arranque: o app subiu, logou, sincronizou a conta inteira, e so entao um
-# worker morreu com "Uncaught RuntimeError: memory access out of bounds" —
-# dentro de nv_http, em src/rede.c, escrevendo o corpo da resposta byte a byte
-# numa view que tinha acabado de deixar de valer.
-#
-# Teto fixo tambem e o que faz sentido numa TV: o orcamento de RAM e conhecido e
-# pequeno, e o cache de texturas ja sabe despejar (contador "despejos" na
-# telemetria de quadro). 16 MB do padrao nao serviria — acaba na primeira
-# fileira de posteres.
 # A ARTE VAI NO PACOTE, mas so um pedaco dela. deploy/app/art tem 236 MB, e
 # collections/ (165 MB) e o catalogo CURADO de quem empacota — quem instalasse
 # veria a colecao de outra pessoa. tools/tizen-art.sh escolhe o que pode sair
@@ -122,7 +102,7 @@ eval emcc src/*.c -o "$SAIDA/index.html" -O2 "$ENV_D" \
   -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sUSE_SDL_TTF=2 \
   -sSDL2_IMAGE_FORMATS='["png","jpg"]' \
   -sMAX_WEBGL_VERSION=1 \
-  -sINITIAL_MEMORY=134217728 -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=536870912 -Wno-pthreads-mem-growth \
+  -sINITIAL_MEMORY=268435456 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=1 \
   `# PILHAS DE 8 MB, e nao o padrao de 64 KB do emscripten. Esta build estava` \
   `# SEM as duas linhas, sozinha entre as builds do projeto: a bancada de teste` \
   `# do AVPlay ja usava 8 MB nos dois. Pilha de fio pequena ja custou caro aqui` \
