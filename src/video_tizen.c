@@ -699,18 +699,29 @@ void video_buscar(double segundos) {
 // LG e por precaucao equivalente: um plano de hardware nao recorta o excedente,
 // e nao ha razao para descobrir na TV Samsung se o comportamento e "recorta" ou
 // "apaga".
+// Aplica o retangulo COMO VEIO, sem grampear. E o ponto unico que fala com o
+// AVPlay e que lembra o que ja esta valendo — a lembranca importa porque quem
+// pede a janela antes de haver sessao (main.c faz isso) precisa que ela seja
+// reenviada no open.
+static void aplicarRect(int x, int y, int w, int h) {
+  if (w < 1 || h < 1) return;
+  if (x == janX && y == janY && w == janW && h == janH) return;
+  janX = x; janY = y; janW = w; janH = h;
+  if (!temAvplay || !ativo) return;
+  printf("[video] plano %d,%d %dx%d\n", x, y, w, h); fflush(stdout);
+  avChamar("rect", NULL, x, y, w, h, NULL, 0);
+}
+
 void video_janela(int x, int y, int w, int h) {
+  // GRAMPEIA A TELA, e so este caminho grampeia. Ver video_janela_fonte: o
+  // recorte emulado PRECISA de um retangulo que saia da tela, e passar por aqui
+  // era o que anulava o zoom inteiro.
   if (w < 1 || h < 1) return;
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
   if (x + w > 1920) w = 1920 - x;
   if (y + h > 1080) h = 1080 - y;
-  if (w < 1 || h < 1) return;
-  if (x == janX && y == janY && w == janW && h == janH) return;
-  janX = x; janY = y; janW = w; janH = h;
-  if (!temAvplay || !ativo) return;
-  printf("[video] janela %d,%d %dx%d\n", x, y, w, h); fflush(stdout);
-  avChamar("rect", NULL, x, y, w, h, NULL, 0);
+  aplicarRect(x, y, w, h);
 }
 
 // SEM EQUIVALENTE: o AVPlay nao recorta a FONTE.
@@ -747,10 +758,19 @@ void video_janela(int x, int y, int w, int h) {
 //
 // O que sobra para fora da tela e o que o recorte descartaria.
 //
-// NAO VERIFICADO se o firmware aceita retangulo que sai da tela (X negativo, W
-// maior que 1920). Se ele grampear ao tamanho da tela, o zoom continua sem
-// efeito — mas ai a causa e outra, e o log abaixo mostra o retangulo pedido
-// para nao ser preciso adivinhar de novo.
+// QUEM GRAMPEAVA ERA ESTE CODIGO, E NAO O FIRMWARE. O comentario anterior aqui
+// dizia "nao verificado se o firmware aceita retangulo que sai da tela; se ele
+// grampear, o zoom continua sem efeito" — e a suspeita apontava para fora. A
+// causa estava duas chamadas acima: este calculo produzia o retangulo maior que
+// a tela, de proposito, e entregava a video_janela, que GRAMPEIA (x<0 vira 0 e
+// encolhe a largura junto). O recorte era desfeito no caminho, sempre, e o
+// botao de aspecto nao mudava nada — que e o relato "no Tizen nao funciona o
+// zoom da imagem no player".
+//
+// Agora vai por aplicarRect, que nao grampeia. Continua NAO VERIFICADO se o
+// firmware da Samsung honra um retangulo fora da tela ou se ele proprio
+// grampeia; a diferenca e que agora, se nao funcionar, a causa esta do lado
+// dele — e o log abaixo mostra exatamente o retangulo pedido.
 void video_janela_fonte(int sx, int sy, int sw, int sh,
                         int dx, int dy, int dw, int dh) {
   double qw = video_largura(), qh = video_altura();
@@ -772,7 +792,7 @@ void video_janela_fonte(int sx, int sy, int sw, int sh,
   printf("[video] recorte %d,%d %dx%d de %.0fx%.0f -> plano %d,%d %dx%d\n",
          sx, sy, sw, sh, qw, qh, X, Y, W, H);
   fflush(stdout);
-  video_janela(X, Y, W, H);
+  aplicarRect(X, Y, W, H);
 }
 
 double video_pos(void)        { return posSeg; }
