@@ -246,9 +246,26 @@ void app_evento(const SDL_Event *e) {
   if (tela == TELA_LOGIN)          { login_evento(e);     return; }
   if (tela == TELA_ESCOLHA_PERFIL) { perfilsel_evento(e); return; }
 
+  // ALTERNA O PAINEL DE PERFIL, COM REPOUSO — e o repouso e o conserto.
+  //
+  // `!e->key.repeat` sozinho nao segura uma tecla SEGURADA num controle de TV.
+  // A bandeira `repeat` do SDL vale para a repeticao que o PROPRIO SDL gera a
+  // partir de um teclado; o firmware da TV manda a tecla segurada como uma
+  // sequencia de KEYDOWNs SEPARADOS, cada um com repeat=0. Este bloco entao
+  // alternava abre/fecha/abre/fecha varias vezes por segundo, e o que a pessoa
+  // ve e o painel do nome dela "aparecendo e sumindo rapido demais para
+  // escolher alguma coisa" — o relato do issue #11.
+  //
+  // 400 ms: acima do intervalo de repeticao de qualquer controle e bem abaixo
+  // de dois toques deliberados. Vale para os dois sentidos (abrir e fechar),
+  // porque o defeito nao distingue: o segundo evento e que sobra.
   if(e->type==SDL_KEYDOWN && !e->key.repeat &&
      (e->key.keysym.sym==SDLK_s || e->key.keysym.scancode==NV_SCANCODE_BLUE) &&
      tela==TELA_HOME && !player_aberto() && !detail_aberto() && !vertudo_aberta() && !menu_aberto()) {
+    static Uint32 ultimoToque;
+    Uint32 agoraTecla = SDL_GetTicks();
+    if (agoraTecla - ultimoToque < 400) return;   // repeticao do firmware
+    ultimoToque = agoraTecla;
     if(perfil_aberto() && perfil_lateral())perfil_fechar();
     else {perfil_abrir_lateral();pedirPerfil();}
     return;

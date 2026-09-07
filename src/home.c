@@ -21,6 +21,7 @@
 #include "badges.h"
 #include "extras.h"
 #include "diretor.h"
+#include "descoberta.h"
 #include <strings.h>
 // Declarado a mao em vez de incluir detail.h: aquele header inclui ESTE (por
 // causa do HomeItem), e o ciclo so nao explode por causa das guardas. Uma
@@ -2096,6 +2097,34 @@ void home_desenhar(Uint32 agora) {
     }
     y += NV_LEGACY_ROW_HEAD_H + alturaTotalFil(r) + fileiraGap();
   }
+
+  // DEPOIS DA ULTIMA FILEIRA: o aviso de que ha mais catalogo do que caberia.
+  //
+  // O limite de fileiras corta o que e PEDIDO pela rede, e isso e deliberado
+  // (sete fileiras tem de custar sete GET). O que NAO pode acontecer e a pessoa
+  // perder uma fileira que ela tinha e nao ter como saber por que — foi o relato
+  // do issue #11: "recommended no longer showing up like before".
+  //
+  // AQUI e nao no topo: e onde quem procura a fileira que faltou vai parar. A
+  // rolagem e mirada na fileira em foco, entao esta linha aparece justamente
+  // quando o foco chega na ultima, com ~160 px de sobra abaixo dela.
+  //
+  // O texto diz O CAMINHO e nao so o fato. "Ha mais catalogos" sem dizer onde
+  // mudar seria informar e nao resolver.
+  { int fora = desc_catalogos_fora();
+    if (fora > 0 && nFileiras > 0) {
+      char aviso[160];
+      snprintf(aviso, sizeof aviso,
+               fora == 1 ? i18n("Cabe %d fileira a mais aqui")
+                         : i18n("Cabem %d fileiras a mais aqui"), fora);
+      TxtLinha l = txt_linha(TXT_CAPTION, aviso, 196, 199, 208, 255);
+      txt_desenhar_alpha(l, ajustes_conteudo_x(), y, 0.92f);
+      { TxtLinha c = txt_linha(TXT_CAPTION2,
+                               "Ajustes  ·  Fileiras da Home  ·  Limite de fileiras",
+                               150, 152, 160, 255);
+        txt_desenhar_alpha(c, ajustes_conteudo_x(), y + l.h + 6.0f, 0.92f); }
+    } }
+
   gfx_opacidade_grupo=1;
   gfx_sem_recorte();
 }

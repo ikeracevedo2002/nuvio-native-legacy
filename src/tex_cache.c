@@ -812,7 +812,24 @@ static int threadDecode(void *arg) {
     SDL_UnlockMutex(mtx);
 
     if (falhou) {
-      printf("[tex] decode falhou (%s): %.70s\n", IMG_GetError(), caminho);
+      // O TAMANHO E OS PRIMEIROS BYTES, e nao so a mensagem do SDL_image.
+      //
+      // "Unsupported image format" e o que ele responde para qualquer coisa que
+      // nenhum leitor reconhece, e os casos possiveis pedem consertos
+      // diferentes: arquivo de 0 byte (a gravacao nao aconteceu), arquivo curto
+      // com assinatura boa (truncado — o caso conhecido do MEMFS sob pressao,
+      // ver o comentario em garantirLocal), ou assinatura de HTML/JSON (o
+      // servidor respondeu pagina de erro com status 200). Sem estes dois
+      // numeros as tres coisas chegam ao log identicas, e foi por falta deles
+      // que este defeito ja consumiu duas hipoteses erradas — webp (o metahub
+      // entrega jpeg) e jpeg progressivo (o SDL_image do emcc decodifica).
+      long tam = -1; unsigned char mag[4] = {0,0,0,0};
+      { FILE *g = fopen(caminho, "rb");
+        if (g) { fseek(g, 0, SEEK_END); tam = ftell(g); rewind(g);
+                 if (fread(mag, 1, 4, g) != 4) { }
+                 fclose(g); } }
+      printf("[tex] decode falhou (%s) tam=%ld magica=%02x%02x%02x%02x: %.70s\n",
+             IMG_GetError(), tam, mag[0], mag[1], mag[2], mag[3], caminho);
       // APAGA o arquivo que nao decodifica. Ele so pode ter chegado ao cache
       // corrompido — a assinatura foi conferida no download —, e mante-lo
       // significa que esta arte NUNCA mais carrega, nem depois de o problema
@@ -898,25 +915,31 @@ static GLuint tex_obter_limite(const char *caminho, int limite) {
   if (i >= 0 && itens[i].estado == FALHOU) {
     itens[i].ultimoQuadro = quadroAtual;
     itens[i].ultimoPedido = SDL_GetTicks();
-    // Ja falhou: so volta para a fila quando o RECUO vencer. Sem essa espera o
-    // pedido voltava a cada quadro e a arte quebrada tomava a frente da boa.
+    // Ja falhou: so volta para a fila quando o RECUO vencer, e no maximo
+    // QUATRO vezes. Sem a espera o pedido voltava a cada quadro e a arte
+    // quebrada tomava a frente da boa; sem o teto acontece coisa pior, e ela
+    // foi MEDIDA na TV Samsung.
     //
-    // NAO HA MAIS TETO DE TENTATIVAS, e a mudanca conserta um defeito de
-    // contagem que deixava o proprio recuo pela metade. A guarda era
-    // `falhas < 3`; o recuo e RECUO[] = {2 s, 10 s, 60 s} indexado por `falhas`
-    // ANTES do incremento. Ou seja: a terceira falha gravava tentarEm para 60 s
-    // adiante e a guarda ja nao deixava aquele prazo ser usado nunca — os 60 s
-    // eram codigo morto e o item ficava PARA SEMPRE sem arte, ate outro card
-    // reaproveitar o slot (slotLivre). Uma rajada de falhas no arranque, que e
-    // exatamente o que acontece no Tizen quando dezenas de imagens saem ao
-    // mesmo tempo pela pilha HTTP do navegador, condenava aqueles cartazes pelo
-    // resto da sessao. E o issue #1: "poster dont load on tiles", intermitente.
+    // A conta estava errada por um: a guarda era `falhas < 3` e o recuo e
+    // RECUO[] = {2 s, 10 s, 60 s} indexado por `falhas` ANTES do incremento,
+    // entao a terceira falha gravava tentarEm para 60 s adiante e a guarda ja
+    // nao deixava aquele prazo ser usado — os 60 s eram codigo morto.
     //
-    // O custo do teto removido e limitado por construcao: passadas as duas
-    // primeiras tentativas o recuo fica preso em 60 s (RECUO[k < 3 ? k : 2]),
-    // logo uma URL que morreu de verdade custa UM pedido por minuto enquanto o
-    // card estiver na tela — e volta a aparecer sozinha se a falha era da rede.
-    if (SDL_GetTicks() >= itens[i].tentarEm) {
+    // EU CONSERTEI ISSO TIRANDO O TETO, E FOI PIOR. O teto nao existe para
+    // limitar pedidos: e ele que devolve o slot. slotLivre() reaproveita, ANTES
+    // de despejar arte que esta na tela, justamente o slot que ja desistiu
+    // (`FALHOU && falhas >= 3`). Sem teto, um item que nunca decodifica volta
+    // para PENDENTE para sempre, nunca satisfaz aquela condicao, e slotLivre cai
+    // no despejo por LRU — passa a jogar fora textura BOA para dar lugar a arte
+    // que nao vai decodificar nunca. Medido no painel da TV: pend=99,
+    // despejos=218 numa janela de 3 s, FPS 54-57 com janks, e os MESMOS cinco
+    // arquivos reaparecendo no log a cada 2 s (o recuo de 2 s de um item
+    // recriado do zero, porque o despejo apaga a memoria da falha junto).
+    //
+    // `< 4` e nao `< 3`: quatro tentativas no total, que e o que a tabela de
+    // recuo sempre descreveu. O prazo de 60 s deixa de ser codigo morto e o
+    // slot volta a ser reciclavel.
+    if (itens[i].falhas < 4 && SDL_GetTicks() >= itens[i].tentarEm) {
       int prox = (filaFim + 1) % MAX_FILA;
       if (prox != filaIni) {
         itens[i].estado = PENDENTE;

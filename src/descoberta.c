@@ -541,6 +541,8 @@ static volatile int repetirAoFim;
 // identicas.
 static volatile unsigned geracaoPedida;
 static unsigned geracaoLida;
+// Ver desc_catalogos_fora em descoberta.h.
+static int catalogosFora;
 static pthread_t fio, fioEp;
 static int epItem = -1, epTemp, fioEpVivo;
 
@@ -1228,10 +1230,32 @@ static void *montar(void *u) {
     // no fim, se um pedido de remontagem que chegou no meio do caminho ja foi
     // atendido por esta volta. Ver geracaoPedida.
     geracaoLida = geracaoPedida;
-    for (i = 0; i < addons_n(); i++) {
-      if (!addons_tem_catalogo(i)) continue;
+    // TODO ADDON TEM O MANIFESTO LIDO, e a guarda `addons_tem_catalogo(i)` que
+    // estava aqui foi TIRADA de proposito.
+    //
+    // Ela era circular: a capacidade que ela consulta sai DESTE mesmo manifesto.
+    // Enquanto ninguem abria a tela de addons dos Ajustes a capacidade ficava na
+    // suposicao otimista (1) para sempre, entao a guarda nunca cortava nada e o
+    // laco lia todos — o comportamento certo, por acidente. Ao passar a aprender
+    // as capacidades no arranque (addons_manifesto_lido) o acidente acabou: da
+    // SEGUNDA volta em diante um addon com catalogo=0 deixaria de ter o
+    // manifesto lido.
+    //
+    // E ISSO QUEBRARIA A BUSCA, que e o ponto. Os alvos de busca sao
+    // registrados dentro de lerManifesto (ver desc_alvo_busca la), e
+    // desc_alvos_busca_zerar() limpa a lista no comeco de cada volta: um addon
+    // que declare catalogo buscavel sem declarar o recurso "catalog" — e addon
+    // real e desleixado com isso — perderia os alvos dele na segunda volta e a
+    // busca ficaria menor sem nada dizendo por que.
+    //
+    // O CATALOGO QUE NAO APARECE NA HOME CONTINUA ATIVO PARA BUSCAR. Essa e a
+    // regra, e ela nao depende de teto, de ordem nem de liga/desliga: quem
+    // filtra fileira e o laco de rodadas mais abaixo, e ele mexe em `decls`,
+    // nunca nos alvos. Um addon sem catalogo nenhum devolve zero Decl e nao
+    // registra alvo nenhum, entao o custo de ler o manifesto dele e um pedido
+    // por volta e mais nada.
+    for (i = 0; i < addons_n(); i++)
       nDecl += lerManifesto(i, addons_base(i), decls + nDecl, DECL_MAX - nDecl);
-    }
     printf("[desc] %d catalogos declarados pelos addons\n", nDecl);
 
     // ALVOS DE BUSCA. Independem da ordem/filtro das FILEIRAS da home: um
@@ -1436,6 +1460,23 @@ static void *montar(void *u) {
         }
       }   /* fim da rodada */
       free(tarefas); tarefas = NULL; nTarefas = 0;
+      // O QUE O LIMITE DEIXOU DE FORA. `cursor` parou onde o teto encheu, entao
+      // o resto de `ordem` nunca foi nem considerado. Conta so o que NAO esta
+      // desligado: fileira que a pessoa desligou na mao nao e surpresa e nao
+      // deve virar convite para aumentar o limite.
+      // NAO E A CONTAGEM CRUA DO QUE SOBROU, e a diferenca importa.
+      //
+      // A primeira versao disto contava tudo que o cursor nao alcancou e a home
+      // dizia "mais 240 catalogos disponiveis" — verdadeiro (o Xperience declara
+      // 605) e inutil: le como alarme e promete o que aumentar o limite nao
+      // entrega, porque o teto do vetor de fileiras e CAT_FIL_MAX. O numero que
+      // serve e QUANTAS FILEIRAS A MAIS a pessoa veria levando o limite ao
+      // maximo, que e o que ela pode fazer a respeito.
+      { int k, sobraram = 0, cabem = CAT_FIL_MAX - teto;
+        for (k = cursor; k < nOrdem; k++)
+          if (!desligada(&decls[ordem[k]])) sobraram++;
+        if (cabem < 0) cabem = 0;
+        catalogosFora = sobraram < cabem ? sobraram : cabem; }
       nFileirasMontadas = nFil;
       memcpy(filsMontadas, fil, sizeof(CatFileira) * (size_t)nFil);
       // UMA LINHA QUE RESPONDE "o que falhou no arranque". As quatro contagens
@@ -1519,6 +1560,8 @@ void desc_iniciar(void) {
 // comum — a pessoa vincula o Trakt enquanto o sync do arranque ainda roda, e as
 // fileiras do Trakt so aparecem no proximo arranque. Foi o relato "ativa o
 // trakt e nao atualiza".
+int desc_catalogos_fora(void) { return catalogosFora; }
+
 void desc_repetir(void) {
   geracaoPedida++;
   if (!buscando) { desc_iniciar(); return; }

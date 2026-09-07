@@ -21,6 +21,21 @@ void desc_iniciar(void);
 // vez de ser descartado. Chamar do fio principal.
 void desc_repetir(void);
 
+// Quantas fileiras A MAIS a home mostraria se o limite fosse ao maximo. 0
+// quando o limite nao esta cortando nada.
+//
+// Nao e a contagem crua do que sobrou: os addons declaram centenas de catalogos
+// e "mais 240 disponiveis" seria verdadeiro e inutil, porque o teto do vetor de
+// fileiras (CAT_FIL_MAX) limita o que aumentar o ajuste pode entregar. Tambem
+// nao conta o que a pessoa desligou de proposito — aquilo nao e surpresa.
+//
+// Existe para a home poder DIZER que ha mais catalogo do que ela esta mostrando.
+// Sem isso o limite e invisivel: quem tinha fileira de recomendacao abaixo da
+// setima simplesmente parou de ve-la, sem nada na tela ligando a ausencia ao
+// ajuste — foi exatamente o relato do issue #11 ("recommended no longer showing
+// up like before").
+int desc_catalogos_fora(void);
+
 // Le a chave do TMDB (art/tmdb.txt). Sem ela o elenco fica so com nomes, sem
 // foto nem personagem.
 void desc_tmdb(const char *dirArte);
