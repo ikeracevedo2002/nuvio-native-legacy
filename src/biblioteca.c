@@ -40,6 +40,7 @@
 #include "layout.h"
 #include "ajustes.h"
 #include "catalogo.h"
+#include "idioma.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -244,7 +245,7 @@ void biblioteca_evento(const SDL_Event *e) {
     if (k == SDLK_RIGHT && pickSel == 0) { pickSel = 1; foco.coluna = 1; return; }
     if (k == SDLK_LEFT  && pickSel == 1) { pickSel = 0; foco.coluna = 0; return; }
     if (k == SDLK_UP)   { foco.fileira = BIB_FIL_MODO; foco.coluna = modo; return; }
-    if (k == SDLK_DOWN) { if (nFiltro) focus_mover(&foco, 0, 1); return; }
+    if (k == SDLK_DOWN) { if (nFiltro) focus_mover_grade(&foco, 0, 1); return; }
     if (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) {
       if (pickSel == 0) tipo = (tipo + 1) % BIB_N_TIPOS;
       else              ordem = (ordem + 1) % BIB_N_ORD;
@@ -259,12 +260,14 @@ void biblioteca_evento(const SDL_Event *e) {
     if (i >= 0 && i < nFiltro) pedido = filtro[i];
     return;
   }
-  if (k == SDLK_RIGHT)     focus_mover(&foco, 1, 0);
-  else if (k == SDLK_LEFT) focus_mover(&foco, -1, 0);
-  else if (k == SDLK_DOWN) focus_mover(&foco, 0, 1);
+  // A grade da biblioteca e uma GRADE: manter a coluna ao subir e descer, e
+  // nao voltar para a coluna onde o cursor esteve por ultimo naquela linha.
+  if (k == SDLK_RIGHT)     focus_mover_grade(&foco, 1, 0);
+  else if (k == SDLK_LEFT) focus_mover_grade(&foco, -1, 0);
+  else if (k == SDLK_DOWN) focus_mover_grade(&foco, 0, 1);
   else if (k == SDLK_UP) {
     if (foco.fileira == BIB_FIL_GRADE) { foco.fileira = BIB_FIL_PICK; foco.coluna = pickSel; }
-    else focus_mover(&foco, 0, -1);
+    else focus_mover_grade(&foco, 0, -1);
   }
 }
 
@@ -411,9 +414,15 @@ void biblioteca_desenhar(Uint32 agora) {
   for (int a = 0; a < BIB_N_MODOS; a++) desenhaModo(a, animModo[a]);
   {
     char resumo[160];
+    // AS PARTES passam por i18n, e nao a frase pronta: a chave da tabela e o
+    // portugues INTEIRO de uma string, e "0 títulos   ·   Sua lista para
+    // assistir" nunca vai existir como chave. Era este o defeito visto na
+    // biblioteca com a interface em inglês (issue #3) — o resto da tela
+    // traduzia porque cada texto chega em text.c sozinho.
     snprintf(resumo, sizeof resumo, "%d %s   ·   %s", nFiltro,
-             nFiltro == 1 ? "título" : "títulos",
-             modo == MODO_SALVOS ? "Sua lista para assistir" : "Sua coleção no Trakt");
+             i18n(nFiltro == 1 ? "título" : "títulos"),
+             i18n(modo == MODO_SALVOS ? "Sua lista para assistir"
+                                      : "Sua coleção no Trakt"));
     TxtLinha info = txt_linha(TXT_CAPTION2, resumo, 179, 179, 179, 255);
     txt_desenhar(info, NV_BIB_DIR - info.w,
                  NV_BIB_MODO_Y + (NV_BIB_MODO_H - info.h) * 0.5f);

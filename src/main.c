@@ -34,6 +34,7 @@
 #include "traktauth.h"
 #include "simklauth.h"
 #include "app.h"
+#include "registro.h"
 #include "video.h"
 #include "addons.h"
 #include "ajustes.h"
@@ -63,6 +64,9 @@ static SDL_Keycode codigoDaTecla(const char *nome) {
   if (!strcmp(nome, "right")) return SDLK_RIGHT;
   if (!strcmp(nome, "ok"))    return SDLK_RETURN;
   if (!strcmp(nome, "back"))  return SDLK_AC_BACK;
+  // "log" abre/fecha o painel de registro na tela. Sem isto, exercitar o painel
+  // exigia a tecla vermelha de um controle de TV — e no Mac ela nao existe.
+  if (!strcmp(nome, "log"))   return SDLK_F9;
   return 0;
 }
 
@@ -267,10 +271,15 @@ int main(int argc, char **argv) {
   // Lancado pelo SAM, stdout e stderr vao para /dev/null — toda a telemetria
   // (FPS, texturas, teclas) estava sendo descartada em silencio. Log em arquivo
   // e a unica forma de ler qualquer coisa de um app nativo em execucao normal.
-#ifndef NV_SEM_WEBOS
-  freopen("/tmp/nuvio.log", "w", stdout);
-  freopen("/tmp/nuvio.log", "a", stderr);
-#endif
+  //
+  // O CAMINHO SAI DE registro.c e nao esta escrito aqui. E o mesmo arquivo que
+  // o painel de log na tela le quando abre; com o nome repetido nos dois lados,
+  // trocar um e esquecer o outro daria um painel vazio sem nenhuma pista do
+  // motivo. NULL = esta compilacao nao redireciona nada (o Mac, onde o log vai
+  // para o terminal, e o alvo Tizen, onde nao ha arquivo util) — que e
+  // exatamente o que o antigo #ifndef NV_SEM_WEBOS ja fazia.
+  { const char *log = registro_arquivo();
+    if (log) { freopen(log, "w", stdout); freopen(log, "a", stderr); } }
   setvbuf(stdout, NULL, _IOLBF, 0);
   if (!getenv("XDG_RUNTIME_DIR")) setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
 
@@ -568,6 +577,29 @@ int main(int argc, char **argv) {
       if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
         e.key.keysym.sym = SDLK_AC_BACK;
 #endif
+      // TECLA DESCONHECIDA, UMA LINHA CADA, UMA VEZ SO.
+      //
+      // Este app aprendeu na mao qual scancode e cada tecla do controle: o Back
+      // e 482, as coloridas sao 486-489 (RED, GREEN, YELLOW, BLUE no
+      // SDL_webOS.h). Descobrir isso exigiu ler o cabecalho do SDK, e as teclas
+      // que o firmware entrega DE FATO ainda nao estao provadas no aparelho —
+      // o Back precisou de um hint proprio para nao ser engolido pelo
+      // compositor e nao existe hint equivalente para as coloridas.
+      //
+      // Com esta linha, apertar uma tecla e ler o log responde a pergunta, em
+      // vez de exigir uma build instrumentada de proposito. Cada scancode sai
+      // UMA vez por sessao: um controle de TV repete a tecla sozinho e um log
+      // por evento afogaria o resto.
+      if (e.type == SDL_KEYDOWN) {
+        static unsigned char visto[512];
+        SDL_Scancode sc = e.key.keysym.scancode;
+        if (sc < 512 && !visto[sc]) {
+          visto[sc] = 1;
+          printf("[tecla] scancode=%d sym=%d (%s)\n", (int)sc,
+                 (int)e.key.keysym.sym, SDL_GetKeyName(e.key.keysym.sym));
+          fflush(stdout);
+        }
+      }
       if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == NV_SCANCODE_BACK) {
         SDL_Event back; SDL_zero(back);
         back.type = SDL_KEYDOWN;

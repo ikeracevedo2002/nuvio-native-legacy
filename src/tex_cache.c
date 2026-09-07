@@ -898,9 +898,25 @@ static GLuint tex_obter_limite(const char *caminho, int limite) {
   if (i >= 0 && itens[i].estado == FALHOU) {
     itens[i].ultimoQuadro = quadroAtual;
     itens[i].ultimoPedido = SDL_GetTicks();
-    // Ja falhou: so volta para a fila quando o recuo vencer, e nunca depois da
-    // terceira tentativa. Sem isto o pedido voltava a cada quadro.
-    if (itens[i].falhas < 3 && SDL_GetTicks() >= itens[i].tentarEm) {
+    // Ja falhou: so volta para a fila quando o RECUO vencer. Sem essa espera o
+    // pedido voltava a cada quadro e a arte quebrada tomava a frente da boa.
+    //
+    // NAO HA MAIS TETO DE TENTATIVAS, e a mudanca conserta um defeito de
+    // contagem que deixava o proprio recuo pela metade. A guarda era
+    // `falhas < 3`; o recuo e RECUO[] = {2 s, 10 s, 60 s} indexado por `falhas`
+    // ANTES do incremento. Ou seja: a terceira falha gravava tentarEm para 60 s
+    // adiante e a guarda ja nao deixava aquele prazo ser usado nunca — os 60 s
+    // eram codigo morto e o item ficava PARA SEMPRE sem arte, ate outro card
+    // reaproveitar o slot (slotLivre). Uma rajada de falhas no arranque, que e
+    // exatamente o que acontece no Tizen quando dezenas de imagens saem ao
+    // mesmo tempo pela pilha HTTP do navegador, condenava aqueles cartazes pelo
+    // resto da sessao. E o issue #1: "poster dont load on tiles", intermitente.
+    //
+    // O custo do teto removido e limitado por construcao: passadas as duas
+    // primeiras tentativas o recuo fica preso em 60 s (RECUO[k < 3 ? k : 2]),
+    // logo uma URL que morreu de verdade custa UM pedido por minuto enquanto o
+    // card estiver na tela — e volta a aparecer sozinha se a falha era da rede.
+    if (SDL_GetTicks() >= itens[i].tentarEm) {
       int prox = (filaFim + 1) % MAX_FILA;
       if (prox != filaIni) {
         itens[i].estado = PENDENTE;

@@ -43,4 +43,39 @@ const char *js_raiz_array(const char *corpo);
 int js_bruto(const char *ini, const char *fim, const char *chave,
              char *dst, size_t tam);
 
+// Instante ISO-8601 de dentro de um JSON, em ms desde a epoca. 0 quando nao da
+// para ler. Aceita "2026-09-04T18:52:07.123456+00:00", o mesmo com "Z", e
+// "2026-09-04 18:52:07".
+//
+// SO UTC, e de proposito: e o que o Postgres e o Trakt devolvem, e o aparelho
+// pode estar com o relogio certo e o fuso errado. O que importa e comparar
+// instantes entre si, nao mostrar hora local.
+//
+// Nasceu private em syncprog.c (last_watched/updated_at). Virou compartilhada
+// quando o segundo consumidor apareceu: o `paused_at` do /sync/playback do
+// Trakt, que e o que ordena a fileira "Continuar assistindo" quando as duas
+// fontes falam da mesma obra. Duas copias de um parser de data divergem — e
+// divergem em silencio, porque o sintoma e uma ORDEM errada, nao um erro.
+long long js_ms_iso(const char *s);
+
+// Valor textual de uma chave da RAIZ do documento, ignorando as internas.
+//
+// POR QUE NAO BASTA js_texto. Ele varre o texto e para na PRIMEIRA ocorrencia
+// da chave, o que e certo nos documentos rasos para os quais nasceu e errado
+// sempre que a mesma chave existe aninhada. Dois casos reais, os dois com
+// sintoma silencioso:
+//   - manifesto Stremio: ha "id" dentro de catalogs[] e de behaviorHints. Se o
+//     autor do addon poe "catalogs" antes de "id", a leitura crua devolve o id
+//     de um CATALOGO como se fosse o do addon — e a partir dai
+//     addons_base_por_id nunca acha o addon.
+//   - resposta /tv do TMDB: "name" aparece em created_by[], genres[],
+//     networks[], seasons[] e production_companies[], e os primeiros vem ANTES
+//     do "name" da raiz na ordem que o TMDB emite. A leitura crua devolveria um
+//     GENERO no lugar do titulo da serie.
+//
+// Anda pelas chaves de profundidade 1, que sao as unicas fora de qualquer { }
+// ou [ ] interno. Nao e um analisador: respeita aspas e escape e nada mais.
+// 1 quando achou e coube. Valor que nao e string devolve 0.
+int js_texto_raiz(const char *corpo, const char *chave, char *dst, size_t tam);
+
 #endif

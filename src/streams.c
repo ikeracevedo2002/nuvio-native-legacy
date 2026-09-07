@@ -12,6 +12,7 @@
 #include "addons.h"
 #include "marco.h"
 #include "debrid.h"
+#include "video.h"
 
 #define FOLHA_W       720.0f
 #define FOLHA_LINHA   228.0f
@@ -229,6 +230,20 @@ int stream_automatico(void) {
 
 
 static int grupo, filtro;
+
+// BOTOES DO CABECALHO. "Sem HDR" so existe onde ha o que renegociar (webOS);
+// ver o bloco "TELA PRETA COM AUDIO TOCANDO" em video.h. Oferecer um botao que
+// nao faz nada seria pior que nao oferecer: a pessoa aperta, nada muda, e passa
+// a duvidar dos outros dois.
+enum { BT_RECARREGAR, BT_SEM_HDR, BT_FECHAR };
+static int botaoDe(int i) {
+  if (video_pode_forcar_sdr()) return i;          // 0,1,2
+  return i == 0 ? BT_RECARREGAR : BT_FECHAR;      // 0,1
+}
+static int nBotoes(void) { return video_pode_forcar_sdr() ? 3 : 2; }
+static const char *rotuloBotao(int b) {
+  return b == BT_RECARREGAR ? "Recarregar" : b == BT_SEM_HDR ? "Sem HDR" : "Fechar";
+}
 static char provedores[13][96];
 static int nProvedores;
 
@@ -275,9 +290,21 @@ void stream_folha_evento(const SDL_Event *e) {
     if(filtro>=nProvedores) filtro=nProvedores-1;
     foco=0;rolagem=0;
   }
-  if(grupo==-1 && (k==SDLK_LEFT || k==SDLK_RIGHT)) foco=k==SDLK_LEFT?0:1;
+  if(grupo==-1 && (k==SDLK_LEFT || k==SDLK_RIGHT)) {
+    foco+=k==SDLK_RIGHT?1:-1;
+    if(foco<0) foco=0;
+    if(foco>=nBotoes()) foco=nBotoes()-1;
+  }
   if(k==SDLK_RETURN || k==SDLK_KP_ENTER) {
-    if(grupo==-1) {if(foco==0) recarregar=1;else aberta=0;}
+    if(grupo==-1) {
+      switch(botaoDe(foco)) {
+        case BT_RECARREGAR: recarregar=1; break;
+        // Fecha a folha junto: a imagem volta (ou nao) na propria tela do
+        // player, e deixar a folha aberta em cima esconderia o resultado.
+        case BT_SEM_HDR:    video_forcar_sdr(); aberta=0; break;
+        default:            aberta=0; break;
+      }
+    }
     else if(grupo==0) {grupo=1;foco=0;}
     else {escolha=filtrado(foco);if(escolha>=0) aberta=0;}
   }
@@ -307,15 +334,25 @@ void stream_folha_desenhar(Uint32 agora) {
   gfx_cor((GfxRect){0,0,NV_TELA_W,NV_TELA_H},0,.02f,.02f,.025f,.35f*anim);
   gfx_cor((GfxRect){x,0,FOLHA_W,NV_TELA_H},.025f,.095f,.095f,.10f,anim);
   txt_desenhar_alpha(txt_linha(TXT_PAINEL_TITULO,"Fontes",240,241,243,255),x+40,44,anim);
-  for(int i=0;i<2;i++) {
-    float bx=x+FOLHA_W-284+i*128;
+  int nbt=nBotoes();
+  for(int i=0;i<nbt;i++) {
+    // Ancorado a DIREITA: com dois ou tres botoes a fileira termina sempre no
+    // mesmo ponto, 36 px antes da borda do painel.
+    float bx=x+FOLHA_W-36-(nbt-i)*128+8;
     int sel=grupo==-1 && foco==i;
     gfx_cor((GfxRect){bx,44,120,50},.3f,sel?.94f:.14f,sel?.94f:.14f,sel?.95f:.15f,anim);
     int c=sel?24:224;
-    TxtLinha l=txt_linha(TXT_PG_FIM,i?"Fechar":"Recarregar",c,c,c,255);
+    TxtLinha l=txt_linha(TXT_PG_FIM,rotuloBotao(botaoDe(i)),c,c,c,255);
     txt_desenhar_alpha(l,bx+(120-l.w)*.5f,58,anim);
   }
-  txt_desenhar_alpha(txt_linha_corta(TXT_PG_FIM,contexto,184,187,193,255,FOLHA_W-80),x+40,126,anim);
+  // A LINHA DE CONTEXTO EXPLICA O BOTAO EM FOCO. "Sem HDR" nao se explica pelo
+  // rotulo, e o rotulo nao pode crescer sem estourar a pilula de 120 px.
+  { const char *ajuda=contexto;
+    if(grupo==-1 && botaoDe(foco)==BT_SEM_HDR)
+      ajuda="Imagem preta com o áudio tocando? Recarrega esta fonte sem HDR nem Dolby Vision.";
+    else if(grupo==-1 && botaoDe(foco)==BT_RECARREGAR)
+      ajuda="Pergunta as fontes de novo a todos os addons.";
+    txt_desenhar_alpha(txt_linha_corta(TXT_PG_FIM,ajuda,184,187,193,255,FOLHA_W-80),x+40,126,anim); }
   gfx_recorte(x+40,180,FOLHA_W-80,62);
   int ini=filtro>1?filtro-1:0;
   float tx=x+40;

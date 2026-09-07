@@ -75,4 +75,22 @@ char *rede_baixar_st(const char *url, int segundos, const char *const *cabecalho
 // primeira. Chamar mais de uma vez nao custa nada.
 void rede_preparar(void);
 
+// URL SEGURA PARA LOG: so o esquema e o host, com o caminho cortado.
+//
+// POR QUE ISTO EXISTE, e nao e paranoia. A chave do debrid viaja no CAMINHO das
+// URLs de addon ("https://host/manifest/<id>/<jwt>", "https://host/d/<chave>/
+// arquivo.mkv"), e o app IMPRIME essas URLs em varios pontos — aqui mesmo, e em
+// debrid.c. O destino desse texto nao e mais so um arquivo de desenvolvimento:
+//   - no webOS ele vai para /tmp/nuvio.log, que e legivel por qualquer processo;
+//   - no Tizen vai para o console do navegador e, com NUVIO_LOG_URL ligado, sai
+//     do aparelho pela rede;
+//   - e agora ele aparece NA TELA DA TV pelo painel da tecla vermelha.
+// O painel corta a URL na exibicao, mas cortar so na exibicao protege a sala e
+// nao o arquivo. Cortar na ORIGEM protege os dois, e o host — que e o que
+// interessa para diagnosticar qual addon respondeu — continua no log.
+//
+// Escreve em `dst` e devolve `dst`, para poder ir direto num printf. Texto sem
+// "://" e copiado como esta (nao e URL, nao ha caminho a esconder).
+const char *rede_url_publica(const char *url, char *dst, unsigned tam);
+
 #endif

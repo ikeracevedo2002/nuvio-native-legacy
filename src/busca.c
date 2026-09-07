@@ -364,17 +364,19 @@ void busca_evento(const SDL_Event *e) {
     }
     if (k == SDLK_TAB && nFil > 0) { painel = 1; return; }
     switch (k) {
-      case SDLK_LEFT:  focus_mover(&focoKb, -1, 0); break;
+      case SDLK_LEFT:  focus_mover_grade(&focoKb, -1, 0); break;
       case SDLK_RIGHT:
         // Passar da ULTIMA coluna do teclado entra nos resultados. E a unica
         // ponte entre os dois paineis, e por isso ela nao pode falhar em
         // silencio: sem resultado nenhum, o foco fica onde esta.
         if (focoKb.coluna >= KB_COLUNAS[focoKb.fileira] - 1) {
           if (nFil > 0) painel = 1;
-        } else focus_mover(&focoKb, 1, 0);
+        } else focus_mover_grade(&focoKb, 1, 0);
         break;
-      case SDLK_UP:     focus_mover(&focoKb, 0, -1); break;
-      case SDLK_DOWN:   focus_mover(&focoKb, 0,  1); break;
+      // GRADE, e nao fileiras: ver focus_mover_grade. Era daqui que saia o
+      // salto para uma letra aleatoria ao subir ou descer no teclado.
+      case SDLK_UP:     focus_mover_grade(&focoKb, 0, -1); break;
+      case SDLK_DOWN:   focus_mover_grade(&focoKb, 0,  1); break;
       case SDLK_RETURN: case SDLK_KP_ENTER: aplicarTecla(); break;
       default: break;
     }

@@ -820,6 +820,15 @@ const char *video_hdr(void)       { return "desconhecido"; }
 int  video_largura(void)          { return vidW; }
 int  video_altura(void)           { return vidH; }
 
+// SEM EQUIVALENTE NESTE ALVO, e por isso responde 0 em vez de fingir.
+//
+// No webOS o app NEGOCIA o hdrType com o ACB e pode renegociar sem HDR; aqui
+// quem decide o pipeline de HDR e o AVPlay do firmware, a partir do proprio
+// fluxo — nao ha campo que este lado possa contradizer. A interface le
+// video_pode_forcar_sdr justamente para nao oferecer um botao inerte.
+int  video_pode_forcar_sdr(void) { return 0; }
+void video_forcar_sdr(void) { }
+
 // Guardado e NAO USADO no AVPlay: nao ha como pedir uma camada de Dolby Vision
 // ao player. Fica registrado para nao parecer esquecimento, e para o dia em que
 // a Samsung expuser algo equivalente.

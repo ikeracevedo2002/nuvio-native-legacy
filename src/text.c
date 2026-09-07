@@ -225,6 +225,106 @@ static Uint32 primeiroNaoAscii(const char *s) {
   return 0;
 }
 
+// Um codepoint DECORATIVO: simbolo, seta, pictograma, emoji, seletor de
+// variacao. Nao pertence a escrita nenhuma e por isso nao pode decidir com que
+// fonte a LINHA INTEIRA e desenhada.
+//
+// POR QUE ISTO EXISTE, com a cobertura da Inter MEDIDA e nao suposta.
+//
+// fonteDe manda a linha toda para a fonte de reserva quando o primeiro
+// caractere fora do ASCII nao existe na Inter. A regra e certa para escrita
+// ("Deadpool & ウルヴァリン" sai legivel na DroidSansFallback) e ERRADA para
+// simbolo. Os nomes de fonte que os addons devolvem sao cheios de decoracao, e
+// um simbolo que a Inter nao tem bastava para a lista de fontes INTEIRA trocar
+// para a DroidSansFallback, que e uma fonte CJK: o latim dela e mais pesado e
+// com outro hinting, o que na tela le exatamente como o issue #7 — "todo o
+// texto aparece em negrito, a informacao fica pixelada". Era tambem trabalho a
+// mais (abrir um segundo arquivo de fonte por estilo e rasterizar com uma fonte
+// muito maior) na tela que o mesmo relato descreve como lenta.
+//
+// CONFERIDO nos tres pesos da InterDisplay embarcada, por TTF_GlyphIsProvided:
+//   TEM      ← ↑ → ↓  •  …  –  —  " '  ★  ▶  ✓  ·
+//   NAO TEM  ⚡  ⚙  ⭐
+// Ou seja: quem derrubava a linha eram os que a Inter nao tem — e "⚡" e o mais
+// comum nos nomes do Torrentio e do AIOStreams. As setas e o "▶" que a PROPRIA
+// interface usa nos seus rotulos sempre passaram, e continuam passando: esta
+// funcao decide por glifo disponivel, nao por faixa de codepoint.
+//
+// Emoji tinham o OUTRO sintoma, nao este: fonteDe devolve a fonte principal
+// para codepoint fora do BMP, entao "💾" e "🇧🇷" nunca trocaram a fonte da linha
+// — saiam como o retangulo do .notdef. Os dois casos morrem aqui.
+static int decorativo(Uint32 cp) {
+  if (cp >= 0x2000  && cp <= 0x2BFF)  return 1;  // pontuacao, setas, simbolos, dingbats
+  if (cp >= 0x2E00  && cp <= 0x2E7F)  return 1;  // pontuacao suplementar
+  if (cp >= 0xFE00  && cp <= 0xFE0F)  return 1;  // seletores de variacao
+  if (cp >= 0x1F000 && cp <= 0x1FAFF) return 1;  // emoji e pictogramas
+  return 0;
+}
+
+// Decodifica um codepoint UTF-8 e diz quantos bytes ele ocupou. Sequencia
+// invalida devolve o byte cru com tamanho 1, para nunca travar o laco.
+static Uint32 decodifica(const unsigned char *p, int *n) {
+  if (*p < 0x80) { *n = 1; return *p; }
+  if ((*p & 0xE0) == 0xC0 && p[1]) { *n = 2; return (Uint32)((*p & 0x1F) << 6 | (p[1] & 0x3F)); }
+  if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) { *n = 3;
+    return (Uint32)((*p & 0x0F) << 12 | (p[1] & 0x3F) << 6 | (p[2] & 0x3F)); }
+  if ((*p & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) { *n = 4;
+    return (Uint32)((*p & 0x07) << 18 | (p[1] & 0x3F) << 12 |
+                    (p[2] & 0x3F) << 6 | (p[3] & 0x3F)); }
+  *n = 1; return *p;
+}
+
+// Tira da linha os decorativos que a fonte principal NAO TEM, e so eles.
+//
+// Sem isto sobrariam duas saidas ruins: manter o caractere e desenhar o
+// retangulo do .notdef (que e o que acontecia com os emoji, ja hoje), ou trocar
+// a fonte da linha inteira (que e o que acontecia com os simbolos do BMP).
+// Tirar e a terceira: "⚡ 1080p · 4.2 GB" continua sendo "1080p · 4.2 GB", na
+// Inter, sem quadradinho.
+//
+// O que a fonte TEM fica: en-dash, reticencias, aspas curvas e o proprio "·"
+// estao na Inter e passam intactos — a decisao e por glifo disponivel, nao por
+// faixa. Emoji fora do BMP saem sempre: TTF_GlyphIsProvided recebe Uint16 e nao
+// alcanca esses codepoints, e nenhuma das fontes deste app os tem.
+//
+// CUSTO: um passe por linha, e ele so acontece quando a linha tem byte fora do
+// ASCII — o caminho comum sai na primeira comparacao. A linha rasterizada e
+// cacheada por text.c, mas a CHAVE do cache e montada com o texto ja limpo,
+// entao este passe roda por quadro; e por isso que a saida rapida importa.
+static const char *semDecorativoSemGlifo(TxtEstilo estilo, const char *s,
+                                         char *dst, size_t tam) {
+  const unsigned char *p = (const unsigned char *)s;
+  size_t k = 0;
+  int algum = 0;
+  for (; *p; p++) if (*p >= 0x80) { algum = 1; break; }
+  if (!algum) return s;
+  // Linha maior que o buffer: fica como esta. Cortar texto visivel para caber
+  // num buffer meu seria trocar um defeito visual por perda de informacao.
+  if (strlen(s) + 1 > tam) return s;
+  p = (const unsigned char *)s;
+  while (*p) {
+    int n = 1;
+    Uint32 cp = decodifica(p, &n);
+    int tirar = 0;
+    if (decorativo(cp))
+      tirar = cp >= 0x10000 ||
+              !TTF_GlyphIsProvided(fontes[estilo], (Uint16)cp);
+    if (!tirar) { int i; for (i = 0; i < n; i++) dst[k++] = (char)p[i]; }
+    p += n;
+  }
+  dst[k] = 0;
+  // Espaco duplo e espaco na borda sao restos do que saiu, nao do texto.
+  { size_t r = 0, w = 0;
+    while (dst[r] == ' ') r++;
+    for (; dst[r]; r++) {
+      if (dst[r] == ' ' && w && dst[w - 1] == ' ') continue;
+      dst[w++] = dst[r];
+    }
+    while (w && dst[w - 1] == ' ') w--;
+    dst[w] = 0; }
+  return dst;
+}
+
 // Qual reserva cobre este codepoint. As faixas sao as usuais do Unicode; o que
 // nao for arabe/hebraico nem CJK cai na terceira, que e a DroidSansFallback (ela
 // cobre cirilico, grego, tailandes e mais).
@@ -441,10 +541,23 @@ void txt_encerrar(void) {
 static TxtLinha linhaFamilia(TxtEstilo estilo, const char *s, int r, int g,
                              int b, int a, TxtFamilia familia) {
   TxtLinha vazia = {0, 0, 0};
+  char limpo[1024];
   if (!s || !*s || estilo < 0 || estilo >= TXT_NFONTES || !fontes[estilo]) return vazia;
 
   if (familia < TXT_FAMILIA_INTER || familia >= TXT_FAMILIA_N)
     familia = TXT_FAMILIA_INTER;
+
+  // ANTES DA CHAVE do cache, para que a linha limpa seja a linha guardada: duas
+  // entradas que diferem so por um emoji que ninguem desenha passam a ser a
+  // mesma, o que tambem alivia a tabela na tela de fontes.
+  // SO NA FAMILIA PRINCIPAL. A limpeza pergunta a fontes[estilo] se o glifo
+  // existe, e as familias de legenda usam outro vetor de fontes (fontesLegAlt):
+  // aplicar o mesmo teste ali tiraria de uma legenda um simbolo que a fonte
+  // DELA tem. A tela que motivou isto — a lista de fontes — e toda Inter.
+  if (familia == TXT_FAMILIA_INTER) {
+    s = semDecorativoSemGlifo(estilo, s, limpo, sizeof limpo);
+    if (!*s) return vazia;
+  }
 
   char chave[288];
   snprintf(chave, sizeof chave, "%d:%d|%02x%02x%02x|%.236s", (int)familia,

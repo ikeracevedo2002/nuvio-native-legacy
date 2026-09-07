@@ -1,4 +1,5 @@
 #include "js.h"
+#include <time.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -134,4 +135,72 @@ int js_bruto(const char *ini, const char *fim, const char *chave,
   memcpy(dst, p, n);
   dst[n] = 0;
   return 1;
+}
+
+// Ver a nota em js.h. Veio de syncprog.c, onde era private, quando o segundo
+// consumidor apareceu (o `paused_at` do Trakt).
+long long js_ms_iso(const char *s) {
+  struct tm tm;
+  int ano, mes, dia, h = 0, m = 0, seg = 0, frac = 0, n;
+  char sep;
+  time_t t;
+  if (!s || !*s) return 0;
+  n = sscanf(s, "%d-%d-%d%c%d:%d:%d", &ano, &mes, &dia, &sep, &h, &m, &seg);
+  if (n < 3) return 0;
+  memset(&tm, 0, sizeof tm);
+  tm.tm_year = ano - 1900; tm.tm_mon = mes - 1; tm.tm_mday = dia;
+  tm.tm_hour = h; tm.tm_min = m; tm.tm_sec = seg;
+  t = timegm(&tm);
+  if (t < 0) return 0;
+  { const char *p = strchr(s, '.');
+    if (p) { int k = 0; p++; while (*p >= '0' && *p <= '9' && k < 3) { frac = frac * 10 + (*p - '0'); p++; k++; }
+             while (k < 3) { frac *= 10; k++; } } }
+  return (long long)t * 1000 + frac;
+}
+
+// Ver a nota em js.h. Veio de addons.c, onde era o leitor do "id" do manifesto,
+// quando o segundo consumidor apareceu (o titulo localizado do TMDB).
+int js_texto_raiz(const char *corpo, const char *chave, char *dst, size_t tam) {
+  const char *p;
+  size_t nChave;
+  int prof = 0;
+  if (!corpo || !chave || !dst || tam == 0) return 0;
+  dst[0] = 0;
+  nChave = strlen(chave);
+  p = strchr(corpo, '{');
+  if (!p) return 0;
+  for (; *p; p++) {
+    if (*p == '"') {
+      const char *ini = p + 1;
+      const char *q = ini;
+      while (*q && *q != '"') q += (*q == '\\' && q[1]) ? 2 : 1;
+      if (prof == 1 && (size_t)(q - ini) == nChave &&
+          !strncmp(ini, chave, nChave)) {
+        const char *v = q + 1;
+        while (*v == ' ' || *v == ':' || *v == '\n' || *v == '\t' || *v == '\r') v++;
+        // Valor nao-string (numero, null, objeto) devolve 0 em vez de meia
+        // leitura: quem chama decide o que fazer com a ausencia.
+        if (*v != '"') return 0;
+        { size_t k = 0;
+          for (v++; *v && *v != '"' && k + 1 < tam; v++) {
+            if (*v == '\\' && v[1]) {
+              v++;
+              // Mesma politica de js_texto: escape vira espaco em vez de
+              // decodificar UTF-16, porque estes textos sao para exibicao.
+              if (*v == 'u') { v += 4; dst[k++] = ' '; continue; }
+              if (*v == 'n' || *v == 't' || *v == 'r') { dst[k++] = ' '; continue; }
+              if (*v == '/') { dst[k++] = '/'; continue; }
+            }
+            dst[k++] = *v;
+          }
+          dst[k] = 0;
+          return k > 0; }
+      }
+      p = *q ? q : q - 1;
+      continue;
+    }
+    if (*p == '{' || *p == '[') prof++;
+    else if (*p == '}' || *p == ']') { prof--; if (prof <= 0) break; }
+  }
+  return 0;
 }

@@ -177,6 +177,8 @@ int  video_tem_dolby_vision(void) { return 0; }
 const char *video_hdr(void) { return "none"; }
 int  video_largura(void) { return 0; }
 int  video_altura(void) { return 0; }
+int  video_pode_forcar_sdr(void) { return 0; }
+void video_forcar_sdr(void) {}
 void video_encerrar(void) {}
 #else
 #include <dlfcn.h>
@@ -283,6 +285,10 @@ static int       vidAtmos, vidDV;
 // AQUI e nao junto da funcao porque o parser do videoInfo, bem acima, marca
 // viuVideo — e no C a ordem de declaracao manda.
 static int       dvNaCarga, dvRecuado, viuVideo;
+// A pessoa pediu SEM HDR nesta sessao (ver video_forcar_sdr). Fica ligado ate a
+// proxima fonte: se ela pediu porque a tela estava preta, uma recuperacao
+// automatica nao pode devolver o Dolby Vision e a tela preta junto.
+static int       semDVForcado;
 
 // Faixas lidas do sourceInfo. Guardadas porque a tela precisa delas a cada
 // quadro e reprocessar o JSON no desenho seria desperdicio.
@@ -1159,6 +1165,8 @@ static int tocarInterno(const char *url, int comDV);
 
 int video_tocar(const char *url) {
   dvRecuado = 0;
+  // FONTE NOVA, decisao nova: o "sem HDR" era sobre o arquivo anterior.
+  semDVForcado = 0;
   // Titulo novo: o marcador do anterior nao vale. Sem isto um filme sem
   // capitulos herdaria os creditos do filme de antes — e o painel subiria numa
   // hora sem relacao nenhuma com o que esta tocando.
@@ -1202,7 +1210,7 @@ void video_bombear(void) {
     double alvo = retomarEm;
     recuperando = 0;
     marco("recarregando a fonte");
-    if (tocarInterno(urlAtual, 1) && alvo > 1.0) {
+    if (tocarInterno(urlAtual, !semDVForcado) && alvo > 1.0) {
       // O seek so vale depois do load; guardar o alvo e deixar o
       // loadCompleted aplica-lo evita mandar posicao para um pipeline que
       // ainda nao existe.
@@ -1569,6 +1577,23 @@ int  video_tem_dolby_vision(void) {
 const char *video_hdr(void)       { return vidHdr; }
 int  video_largura(void)          { return vidW; }
 int  video_altura(void)           { return vidH; }
+
+// Ver o bloco "TELA PRETA COM AUDIO TOCANDO" em video.h. Reaproveita a
+// maquinaria de `recuperando`, que ja sabe recarregar a fonte e voltar para a
+// posicao — reimplementar o recarregar aqui seria um segundo caminho para a
+// mesma coisa, e o load precisa acontecer no fio principal.
+int  video_pode_forcar_sdr(void) { return urlAtual[0] != 0; }
+void video_forcar_sdr(void) {
+  if (!urlAtual[0]) return;
+  semDVForcado = 1;
+  if (recuperando) return;            // um recarregar ja esta a caminho
+  recuperando = 1;
+  retomarEm = posSeg;
+  printf("[video] pedido manual: recarregar sem HDR em %.1fs "
+         "(hdr do pipeline=%s, fonte afirmava DV=%d)\n",
+         posSeg, vidHdr, dvPedido);
+  fflush(stdout);
+}
 
 void video_definir_dv(int dv) { dvPedido = dv ? 1 : 0; }
 

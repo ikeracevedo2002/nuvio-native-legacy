@@ -6,6 +6,28 @@
 #include <strings.h>
 #include <dlfcn.h>
 
+// Ver rede.h. Fica ANTES da guarda de alvo porque os dois caminhos de rede
+// imprimem URL, e debrid.c tambem usa.
+const char *rede_url_publica(const char *url, char *dst, unsigned tam) {
+  const char *e, *h;
+  unsigned n;
+  if (!dst || tam == 0) return "";
+  dst[0] = 0;
+  if (!url || !*url) return dst;
+  e = strstr(url, "://");
+  if (!e) { snprintf(dst, tam, "%.*s", (int)tam - 1, url); return dst; }
+  h = e + 3;
+  while (*h && *h != '/' && *h != '?' && *h != '#') h++;
+  n = (unsigned)(h - url);
+  if (n >= tam) n = tam - 1;
+  memcpy(dst, url, n);
+  dst[n] = 0;
+  // O "/..." avisa que havia caminho: sem ele, um log com host nu parece um
+  // pedido a raiz do servidor, que e uma leitura errada.
+  if (*h && n + 4 < tam) { memcpy(dst + n, "/...", 4); dst[n + 4] = 0; }
+  return dst;
+}
+
 #ifdef __EMSCRIPTEN__
 // ---------------------------------------------------------------- EMSCRIPTEN
 // Caminho de rede do alvo Tizen (WASM).
@@ -117,7 +139,9 @@ static char *pedir(const char *metodo, const char *url, const char *const *cab,
   corpoResp = nv_http(metodo, url, cabs, corpo, &n, &http, NULL, 0);
   free(cabs);
   if (status) *status = http;
-  if (!corpoResp) { printf("[rede] falhou em %.60s\n", url); return NULL; }
+  if (!corpoResp) { char seg[120];
+    printf("[rede] falhou em %s\n", rede_url_publica(url, seg, sizeof seg));
+    return NULL; }
 
   // TETO: aqui ele so CORTA, nao interrompe.
   //
@@ -137,7 +161,8 @@ static char *pedir(const char *metodo, const char *url, const char *const *cab,
   // a unica pista de qual funcao ou tabela faltou.
   if (http >= 400 && !status) {
     free(corpoResp);
-    printf("[rede] HTTP %d em %.60s\n", http, url);
+    { char seg[120];
+      printf("[rede] HTTP %d em %s\n", http, rede_url_publica(url, seg, sizeof seg)); }
     fflush(stdout);
     return NULL;
   }
@@ -432,7 +457,8 @@ static char *rede_baixar_interno2(const char *url, int segundos, long *tam,
       curl_cleanup(c);
       if (lista && slist_free) slist_free(lista);
       free(b.p);
-      printf("[rede] HTTP %ld em %.60s\n", http, url);
+      { char seg[120];
+        printf("[rede] HTTP %ld em %s\n", http, rede_url_publica(url, seg, sizeof seg)); }
       fflush(stdout);
       return NULL;
     } }
@@ -443,7 +469,9 @@ static char *rede_baixar_interno2(const char *url, int segundos, long *tam,
   // enche. Nesse caso o que ja veio e exatamente o que se queria — tratar como
   // falha jogaria fora o cabecalho inteiro que acabamos de baixar.
   if (r == 23 && rede_teto > 0 && b.n > 0) r = 0;
-  if (r != 0) { free(b.p); printf("[rede] falha %d em %.60s\n", r, url); return NULL; }
+  if (r != 0) { char seg[120]; free(b.p);
+    printf("[rede] falha %d em %s\n", r, rede_url_publica(url, seg, sizeof seg));
+    return NULL; }
   if (tam) *tam = (long)b.n;
   return b.p;
 }

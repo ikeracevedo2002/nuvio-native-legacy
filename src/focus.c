@@ -36,6 +36,33 @@ int focus_mover(Foco *f, int dx, int dy) {
   return (f->fileira != fAntes || f->coluna != cAntes);
 }
 
+int focus_mover_grade(Foco *f, int dx, int dy) {
+  int fAntes = f->fileira, cAntes = f->coluna;
+
+  if (dx) {
+    int novo = f->coluna + dx;
+    if (novo >= 0 && novo < f->nColunas[f->fileira]) f->coluna = novo;
+  }
+  if (dy) {
+    // Mesma regra de PULAR fileira vazia do focus_mover: uma fileira sem item
+    // nunca recebe foco.
+    int nova = f->fileira + dy;
+    while (nova >= 0 && nova < f->nFileiras && f->nColunas[nova] <= 0) nova += dy;
+    if (nova >= 0 && nova < f->nFileiras) {
+      int alvo = f->coluna;
+      // A memoria continua sendo ESCRITA, para o caso de a mesma estrutura ser
+      // percorrida tambem por focus_mover (a biblioteca troca de modo e
+      // reinicia o foco); ela so nao e LIDA aqui.
+      f->colunaLembrada[f->fileira] = f->coluna;
+      if (alvo >= f->nColunas[nova]) alvo = f->nColunas[nova] - 1;
+      if (alvo < 0) alvo = 0;
+      f->fileira = nova;
+      f->coluna = alvo;
+    }
+  }
+  return (f->fileira != fAntes || f->coluna != cAntes);
+}
+
 int focus_indice(const Foco *f, int fileira, int coluna) {
   return (f->fileira == fileira && f->coluna == coluna);
 }

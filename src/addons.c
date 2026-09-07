@@ -107,6 +107,15 @@ int addons_definir_lista(const AddonRemoto *nova, int n) {
     // Addon DESLIGADO tambem entra: ele aparece na lista e pode ser religado
     // aqui. So nao e consultado (ver ativoParaConsulta).
     if (!nova[i].url[0]) continue;
+    // ZERAR A ENTRADA INTEIRA, e nao so os campos que a conta traz.
+    //
+    // `id` (o do manifesto) so e preenchido pela sonda, e este laco nunca o
+    // tocava: numa segunda chamada — e ela acontece a cada ciclo de sync — o
+    // slot herdava o id do addon que estava ANTES naquela posicao, agora com
+    // uma base diferente. addons_base_por_id passava a devolver a base ERRADA
+    // para aquele id, e quem consulta esse mapa sao as fontes das colecoes da
+    // conta (colecoes.c): a pasta abria o catalogo de outro addon, ou nenhum.
+    memset(&addon[aceitos], 0, sizeof addon[aceitos]);
     snprintf(addon[aceitos].nome, sizeof addon[aceitos].nome, "%s",
              nova[i].nome[0] ? nova[i].nome : "Addon");
     snprintf(addon[aceitos].base, sizeof addon[aceitos].base, "%s", nova[i].url);
@@ -439,7 +448,29 @@ static int sondaViva;
 static void capacidadesDoManifesto(int i, const char *corpo) {
   const char *r = strstr(corpo, "\"resources\"");
   int cat = 0, str = 0, leg = 0;
-  if (!r) return;
+  // O ID E O NOME VEM PRIMEIRO, ANTES DE QUALQUER RETORNO CEDO.
+  //
+  // Estavam no fim da funcao, depois de tres `return` que dependem de
+  // "resources" — um campo que o protocolo pede mas que addon real as vezes
+  // omite ou escreve de forma que este leitor nao alcanca. Nesse caso o addon
+  // ficava PARA SEMPRE sem id, addons_base_por_id devolvia "" e as pastas de
+  // colecao da conta abriam sem nenhuma fileira (issue #10). As capacidades
+  // seguem sendo suposicao otimista quando o campo nao da para ler, que e o
+  // que `sondado` distingue.
+  // O "id" DA RAIZ, e nao o primeiro "id" do documento: um manifesto Stremio
+  // tem "id" tambem dentro de catalogs[] e de behaviorHints. Ver js_texto_raiz
+  // em js.h, que e onde este leitor mora agora — o TMDB precisou do mesmo.
+  if (js_texto_raiz(corpo, "id", addon[i].id, sizeof addon[i].id))
+    printf("[addons] %s: id do manifesto = %s\n", addon[i].nome, addon[i].id);
+  { char nome[64];
+    if (js_texto(corpo, NULL, "name", nome, sizeof nome) && nome[0])
+      snprintf(addon[i].nome, sizeof addon[i].nome, "%s", nome); }
+  if (!r) {
+    printf("[addons] %s: manifesto sem \"resources\" legivel; capacidades ficam supostas\n",
+           addon[i].nome);
+    fflush(stdout);
+    return;
+  }
   // Pular a CHAVE e ir ao valor. MEDIDO na TV: js_fim sobre a aspa de
   // "resources" devolve o proprio ponteiro, o trecho ficava vazio e TODO addon
   // virava catalogo=0 stream=0 legenda=0 — a primeira busca de fontes (antes
@@ -465,10 +496,6 @@ static void capacidadesDoManifesto(int i, const char *corpo) {
   addon[i].fonte    = str;
   addon[i].legenda  = leg;
   addon[i].sondado  = 1;
-  js_texto(corpo, NULL, "id", addon[i].id, sizeof addon[i].id);
-  { char nome[64];
-    if (js_texto(corpo, NULL, "name", nome, sizeof nome) && nome[0])
-      snprintf(addon[i].nome, sizeof addon[i].nome, "%s", nome); }
   printf("[addons] %s: catalogo=%d stream=%d legenda=%d\n",
          addon[i].nome, cat, str, leg);
   fflush(stdout);
@@ -495,11 +522,30 @@ static void *sondar(void *u) {
   return NULL;
 }
 
+void addons_manifesto_lido(int i, const char *corpo) {
+  if (i < 0 || i >= nAddon || !corpo || !*corpo) return;
+  capacidadesDoManifesto(i, corpo);
+}
+
 void addons_sondar_manifestos(void) {
   if (sondaViva || nAddon <= 0) return;
   sondaViva = 1;
   if (pthread_create(&fioSonda, NULL, sondar, NULL) != 0) sondaViva = 0;
   else pthread_detach(fioSonda);
+}
+
+void addons_legendas_reiniciar(void) {
+  char id[64], tp[16];
+  pthread_mutex_lock(&legTrava);
+  snprintf(id, sizeof id, "%s", legId);
+  snprintf(tp, sizeof tp, "%s", legTipo);
+  // Zerar o alvo e o que desarma a guarda de "mesmo pedido" logo abaixo; a
+  // geracao nova faz o fio vivo, se houver, descartar o que ja tinha juntado.
+  legId[0] = 0; legTipo[0] = 0;
+  nLegs = 0;
+  legGeracao++;
+  pthread_mutex_unlock(&legTrava);
+  if (id[0]) addons_buscar_legendas(id, tp[0] ? tp : "movie");
 }
 
 void addons_buscar_legendas(const char *imdb, const char *tipo) {

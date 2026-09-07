@@ -10,6 +10,7 @@
 #include "anim.h"
 #include "ajustes.h"
 #include "diretor.h"
+#include "addons.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -44,6 +45,9 @@ static int source, tabFocus, tabCursor, timeline, ranked;
 static float tabAnim[COL_SOURCE_MAX];
 static int order[VT_MAX], orderN=-1;
 static char catalogId[96];
+// A fonte escolhida NAO TEM ENDERECO ainda: o addon dela nao esta instalado
+// nesta TV, ou a sonda de manifesto ainda nao respondeu. Ver openSource.
+static int semFonte;
 static int grupo(const char *nome) {
   return collection && !strcmp(collection->group, nome);
 }
@@ -79,18 +83,52 @@ static int yearOf(const CatItem *it) {
   return 9999;
 }
 static int viewItem(int i,CatItem *out) {return desc_vertudo_item(timeline&&i<orderN?order[i]:i,out);}
+// O ENDERECO DA FONTE, que pode nao existir ainda.
+//
+// Uma pasta que veio da CONTA guarda o addonId (o "id" do manifesto) e, muitas
+// vezes, nenhuma URL: quem resolve e o mapa de addons, e ele so conhece o id
+// depois que a sonda leu o manifesto daquele addon. Uma pasta que veio do
+// PACOTE ja traz a base escrita.
+static const char *baseDaFonte(const ColSource *s) {
+  if (s->base[0]) return s->base;
+  return s->addonId[0] ? addons_base_por_id(s->addonId) : "";
+}
+
 static void openSource(void) {
   const ColSource *s=&collection->sources[source];
+  const char *base=baseDaFonte(s);
   snprintf(catalogId,sizeof catalogId,"%s",s->catId);
   ranked=strstr(s->catId,"top100")||strstr(s->catId,"top250")||strstr(s->catId,"top10");
   foco=0;scrollY=velY=0;orderN=-1;
-  desc_vertudo_filtro(s->base,s->type,s->catId,s->genre);
+  // BASE VAZIA NAO VIRA PEDIDO.
+  //
+  // desc_vertudo_filtro so recusa ponteiro NULO, e `base` e um vetor dentro da
+  // ColSource — nunca nulo, as vezes vazio. Com ele vazio a URL montada virava
+  // "/catalog/movie/<id>.json", um caminho RELATIVO: no Tizen o XHR resolve
+  // isso contra a origem do proprio widget, a resposta e o index.html e nada
+  // decodifica. O resultado na tela era a colecao abrindo sem um unico cartaz e
+  // sem explicacao (issue #10). Agora a tela DIZ o que falta.
+  semFonte = !base[0];
+  if (semFonte) {
+    printf("[vertudo] fonte sem endereco: addonId=\"%s\" cat=%s/%s\n",
+           s->addonId, s->type, s->catId);
+    fflush(stdout);
+    return;
+  }
+  desc_vertudo_filtro(base,s->type,s->catId,s->genre);
 }
+
 void vertudo_colecao(const ColFolder *folder) {
+  int i;
   if(!folder||!folder->nSources)return;
   memset(tabAnim, 0, sizeof tabAnim);
   collection=folder;source=tabCursor=0;tabFocus=folder->nSources>1;aberta=1;pedAbrir=-1;
   timeline=!strcmp(folder->group,"Directors");
+  // COMECAR NA PRIMEIRA FONTE QUE TEM ENDERECO, e nao teimosamente na fonte 0.
+  // Numa pasta com varias abas e comum que so parte dos addons esteja instalada
+  // aqui; abrir na aba morta faz a pasta inteira parecer vazia.
+  for (i = 0; i < folder->nSources; i++)
+    if (baseDaFonte(&folder->sources[i])[0]) { source = tabCursor = i; break; }
   snprintf(titulo,sizeof titulo,"%s",folder->title);openSource();
 }
 
@@ -158,6 +196,15 @@ void vertudo_atualizar(float dt, Uint32 agora) {
   (void)agora;
   anim = anim_mola(anim, aberta ? 1.0f : 0.0f, dt, NV_MOLA_TELA);
   if (!aberta) return;
+  // A SONDA PODE CHEGAR DEPOIS DA TELA. Enquanto a fonte nao tem endereco,
+  // reconferir por quadro custa uma varredura de poucas strings (addons_n e
+  // dezenas, nao milhares) e SO acontece no estado de erro — assim a colecao se
+  // preenche sozinha quando o manifesto responde, em vez de exigir sair e
+  // entrar de novo.
+  if (semFonte && collection) {
+    const ColSource *s = &collection->sources[source];
+    if (baseDaFonte(s)[0]) openSource();
+  }
   for (int i = 0; i < COL_SOURCE_MAX; i++) {
     float alvoTab = collection && tabFocus && i == tabCursor ? 1.0f : 0.0f;
     tabAnim[i] = anim_mola(tabAnim[i], alvoTab, dt,
@@ -337,7 +384,9 @@ static void themeHeader(float a,float x0) {
     gfx_rect((GfxRect){x0,83,w,h},logo,tex_marca_escura(collection->logo)?GFX_MARCA:GFX_TEXTO,0,0,0,0,.96f,.97f,.98f,a);
   } else {TxtLinha title=txt_linha_corta(TXT_TITULO1,titulo,242,243,247,255,940);txt_desenhar_alpha(title,x0,80,a);}
   char caption[180];int n=nItens();
-  if(desc_vertudo_erro())snprintf(caption,sizeof caption,"Não foi possível carregar. OK para tentar novamente.");
+  if(semFonte)snprintf(caption,sizeof caption,"%s",
+    "O addon desta coleção não está instalado nesta TV.");
+  else if(desc_vertudo_erro())snprintf(caption,sizeof caption,"Não foi possível carregar. OK para tentar novamente.");
   else if(!n)snprintf(caption,sizeof caption,"%s",desc_vertudo_carregando()?"Carregando títulos…":"Nenhum título nesta lista.");
   else snprintf(caption,sizeof caption,i18n("%d títulos%s  ·  %s"),n,desc_vertudo_fim()?"":i18n(" carregados"),legendaGrupo());
   TxtLinha sub=txt_linha_corta(TXT_DET_META2,caption,196,202,213,255,960);txt_desenhar_alpha(sub,x0,192,a);

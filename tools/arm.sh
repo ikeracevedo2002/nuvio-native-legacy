@@ -95,6 +95,30 @@ rm -f ./*.ipk
 ARQ_DE_PESSOA="trakt.txt addons.txt tmdb.txt mdblist.txt ajustes.txt
                progresso.txt nuvem.txt sessao.txt perfil.txt cliente.txt"
 
+# O ACERVO DE QUEM EMPACOTOU, que nao e credencial de login e vaza igual.
+#
+# collections.json E CREDENCIAL, apesar da extensao. Cada fonte de pasta guarda
+# a URL do addon do dono, e nessas URLs a chave viaja no CAMINHO
+# ("https://host/manifest/<pid>/<jwt>"). Um .ipk publicado com esse arquivo
+# entrega a instalacao de addon do dono a todo mundo que instalar. A lista de
+# .txt acima nunca o pegou porque ele nao termina em .txt — e a conferencia
+# tambem nao, porque ela so procurava aquela lista. Isto e o mesmo defeito que
+# ja custou o vazamento de art/trakt.txt uma vez, com outra extensao.
+#
+# collections/ sao 165 MB de quadros de animacao do catalogo CURADO do dono:
+# quem instalasse veria a colecao de outra pessoa como se fosse sua. Era
+# pendencia conhecida deste .ipk (tools/tizen-art.sh ja a recusa no .wgt e diz
+# isso por escrito) e sai agora.
+#
+# NAO E PERDA DE FUNCIONALIDADE: sem collections.json o app nao tem pasta LOCAL
+# nenhuma e as colecoes passam a vir so da CONTA, que e exatamente como o alvo
+# Tizen ja funciona. A arte editorial embarcada tambem so era usada por pastas
+# locais (col_definir_json reaproveita arte apenas do que tem `local`), e as
+# chaves dela sao os ids das colecoes DO DONO — para outra conta ela nunca
+# casaria.
+ACERVO_DE_PESSOA="collections.json catalogo-rede.bin"
+DIR_DE_PESSOA="collections"
+
 if [ "$1" = "--ipk" ]; then
   echo "==> empacotando (sem credenciais)"
   PALCO=$(mktemp -d); LIXO="$LIXO $PALCO"
@@ -102,7 +126,8 @@ if [ "$1" = "--ipk" ]; then
   # cache/ e cache de EXECUCAO, nao arte do pacote: sao megabytes de imagem
   # baixada que o app rebaixa sozinho.
   rm -rf "$PALCO/app/art/cache"
-  for f in $ARQ_DE_PESSOA; do rm -f "$PALCO/app/art/$f"; done
+  for f in $ARQ_DE_PESSOA $ACERVO_DE_PESSOA; do rm -f "$PALCO/app/art/$f"; done
+  for d in $DIR_DE_PESSOA; do rm -rf "$PALCO/app/art/$d"; done
 
   "$ARES" "$PALCO/app" -o .
   IPK=$(ls -t ./*.ipk | head -1)
@@ -122,15 +147,20 @@ if [ "$1" = "--ipk" ]; then
     exit 1
   fi
   VAZOU=""
-  for f in $ARQ_DE_PESSOA; do
+  for f in $ARQ_DE_PESSOA $ACERVO_DE_PESSOA; do
     printf '%s\n' "$LISTA" | grep -q "art/$f$" && VAZOU="$VAZOU $f"
+  done
+  # Diretorio: qualquer caminho DENTRO dele conta como vazamento, nao so a
+  # entrada da pasta — o tar pode listar os arquivos sem listar o diretorio.
+  for d in $DIR_DE_PESSOA; do
+    printf '%s\n' "$LISTA" | grep -q "art/$d/" && VAZOU="$VAZOU $d/"
   done
   if [ -n "$VAZOU" ]; then
     echo "    ABORTADO: o pacote leva credencial ->$VAZOU"
     rm -f "$IPK"
     exit 1
   fi
-  echo "    $IPK ($(du -h "$IPK" | cut -f1)) — sem art/{$(echo $ARQ_DE_PESSOA | tr ' ' ',')}"
+  echo "    $IPK ($(du -h "$IPK" | cut -f1)) — sem art/{$(echo $ARQ_DE_PESSOA $ACERVO_DE_PESSOA $DIR_DE_PESSOA | tr ' ' ',')}"
 fi
 
 [ "$1" = "--build" ] && exit 0
@@ -201,7 +231,7 @@ echo "==> sincronizando arte"
 if ! ( set -o pipefail
        tar czf - -C deploy/app --exclude 'art/cache' \
            --exclude 'appinfo.json.stamped' \
-           art fonts icon.png \
+           art fonts icon.png icon-large.png \
          | $SSH "root@$TV_IP" "tar xzf - -C $APPDIR" ) 2>&1 \
      | grep -v 'unknown extended header keyword'; then
   :

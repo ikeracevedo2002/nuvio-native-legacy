@@ -12,6 +12,7 @@
 //   3. menu    — camada sobre a tela corrente
 //   4. a tela corrente (home, busca, biblioteca ou ajustes)
 #include "app.h"
+#include "registro.h"
 #include "addonsui.h"
 #include "login.h"
 #include "sessao.h"
@@ -229,6 +230,16 @@ int app_iniciar(const char *dirArte) {
 void app_evento(const SDL_Event *e) {
   if (e->type == SDL_QUIT) { sair = 1; return; }
 
+  // O PAINEL DE LOG VEM ANTES DE TUDO, inclusive do login.
+  //
+  // Ele e uma ferramenta de diagnostico, e o momento em que mais se precisa
+  // dela e justamente aquele em que o app esta preso numa tela — o travamento
+  // que motivou o painel DOM do Tizen aconteceu NO LOGIN. Roteado depois do
+  // login, a tecla vermelha nao chegaria ali e o painel seria inutil onde ele
+  // mais importa. Enquanto aberto ele engole todo o teclado, incluindo o KEYUP
+  // do toque que o abriu ou fechou (ver a nota da armadilha em registro.c).
+  if (registro_evento(e)) return;
+
   // O login vem antes de tudo, inclusive do player: enquanto nao ha conta o
   // resto do app nao tem dado nenhum para operar. A escolha de perfil vem logo
   // depois, porque e ela que define para QUEM o resto do app vai sincronizar.
@@ -401,6 +412,19 @@ void app_atualizar(float dt, Uint32 agora) {
     perfilsel_iniciar();
     return;
   }
+  // AVISO DE PRIMEIRA EXECUCAO, e AQUI e nao antes.
+  //
+  // Ele ensina a tecla vermelha, e o lugar errado para isso e a frente do
+  // login: la a pessoa esta tentando enquadrar um QR com o celular, e um cartao
+  // por cima atrapalha a unica coisa que ela precisa fazer. Depois da escolha
+  // de perfil, na primeira vez que a home aparece de verdade (homePronta, sem
+  // player nem detalhe por cima), o cartao nao disputa com nada.
+  //
+  // Chamar em todo quadro nao custa: a decisao acontece uma vez e o modulo a
+  // guarda — a leitura do arquivo de bandeira nao se repete.
+  if (tela == TELA_HOME && homePronta && !player_aberto() && !detail_aberto())
+    registro_aviso_primeira_vez();
+
   // E o ciclo automatico — nunca com o player aberto: rajada de HTTP no meio
   // do video disputa CPU e rede com o decodificador.
   if (!player_aberto()) sync_periodico((unsigned)agora);
@@ -731,7 +755,12 @@ void app_atualizar(float dt, Uint32 agora) {
   if(tela==TELA_ADDONS) addonsui_atualizar(dt, agora);
 }
 
-void app_desenhar(Uint32 agora) {
+// O corpo do desenho de TELA. Saiu de app_desenhar para uma funcao propria por
+// um motivo unico: os `return` daqui (login, escolha de perfil, estado vazio da
+// home) impediam qualquer coisa de ser desenhada DEPOIS deles, e o painel de
+// log tem de aparecer tambem nessas telas — que sao exatamente onde o app ja
+// travou uma vez.
+static void desenharTelas(Uint32 agora) {
   if (tela == TELA_LOGIN)          { login_desenhar(agora);     return; }
   if (tela == TELA_ESCOLHA_PERFIL) { perfilsel_desenhar(agora); return; }
 
@@ -815,6 +844,24 @@ void app_desenhar(Uint32 agora) {
   episodios_desenhar();
   stream_folha_desenhar(agora);
   faixas_desenhar(agora);
+}
+
+void app_desenhar(Uint32 agora) {
+  // COM O PAINEL DE LOG ABERTO A INTERFACE NAO E PINTADA.
+  //
+  // O painel e um cartao de tela quase cheia e opaco (alpha 0.94): pintar a
+  // home por baixo dele seria uma SEGUNDA camada de tela cheia, e gfx.c ja
+  // mediu que duas dessas derrubam a Mali-G71 da TV para ~40fps. Nada se perde
+  // visualmente — nao ha nada visivel por baixo — e o que aparece na moldura de
+  // 56px e a cor de limpeza do quadro, que o main.c ja pintou.
+  //
+  // As animacoes nao param por isso: elas avancam em app_atualizar, que
+  // continua rodando. O video tambem continua tocando; o que ele perde e o furo
+  // de alpha que o revela, entao o plano de video fica coberto enquanto o
+  // painel esta em pe — que e o comportamento desejado para quem parou o app
+  // para LER o log.
+  if (!registro_aberto()) desenharTelas(agora);
+  registro_desenhar();
 }
 
 int app_quer_sair(void) { return sair; }

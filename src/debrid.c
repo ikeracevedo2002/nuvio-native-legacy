@@ -160,6 +160,12 @@ int debrid_resolver(const char *infoHash, int fileIdx, char *url, unsigned n) {
     printf("[debrid] unrestrict: HTTP %d\n", st); free(r); return 0;
   }
   free(r);
-  printf("[debrid] %s -> %.60s\n", infoHash, url);
+  // O CAMINHO DESTA URL E A CREDENCIAL: e o link direto que o Real-Debrid
+  // devolve, e quem o tem baixa usando a conta de quem pediu. Ver
+  // rede_url_publica em rede.h. Os 60 caracteres que estavam aqui incluiam o
+  // segmento /d/<chave>/ inteiro.
+  { char seg[120];
+    printf("[debrid] %s -> %s\n", infoHash,
+           rede_url_publica(url, seg, sizeof seg)); }
   return 1;
 }

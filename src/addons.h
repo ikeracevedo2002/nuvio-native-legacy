@@ -60,6 +60,20 @@ typedef struct {
 } Legenda;
 
 void addons_buscar_legendas(const char *imdb, const char *tipo);
+
+// REFAZ a busca do titulo que esta carregado agora, descartando a lista atual.
+//
+// addons_buscar_legendas DECLINA quando o id pedido e o que ja esta em memoria
+// — e a decisao certa, senao cada quadro do detalhe refaria dezenas de
+// requisicoes. Mas a lista depende TAMBEM do idioma preferido (gruposIdioma), e
+// trocar o idioma em Ajustes nao mudava id nenhum: a folha de legendas
+// continuava mostrando exatamente o que o idioma anterior deixou, o que do sofa
+// se le como "mudei no ajuste e nada muda" (issue #9). Chamar isto e o que
+// torna o ajuste observavel sem enfraquecer a guarda.
+//
+// Sem titulo carregado nao faz nada.
+void addons_legendas_reiniciar(void);
+
 int  addons_n_legendas(void);
 const Legenda *addons_legenda(int i);
 
@@ -78,7 +92,31 @@ int  addons_alternar(int i);          // devolve o estado NOVO
 int  addons_fornece(int i, int oque);
 int  addons_sondado(int i);
 // Le o manifesto de cada addon num fio proprio, uma vez por lista.
+//
+// SO SERVE COMO RESERVA hoje, e a distincao importa: ela era chamada de um
+// lugar so — a tela de addons dos Ajustes (addonsui.c) — entao quem nunca abria
+// aquela tela passava a sessao INTEIRA com `addon[].id` vazio. Como o id do
+// manifesto e a chave que addons_base_por_id usa, e como as fontes das colecoes
+// da conta guardam esse id e nenhuma URL, TODA colecao da conta abria vazia. E
+// a causa raiz do issue #10, e ela nao estava em nenhuma das funcoes que
+// pareciam culpadas. O caminho normal agora e addons_manifesto_lido, abaixo.
 void addons_sondar_manifestos(void);
+
+// O MANIFESTO DO ADDON `i`, JA BAIXADO POR OUTRO. Preenche id, nome e
+// capacidades a partir de `corpo`.
+//
+// Existe para nao baixar o mesmo arquivo duas vezes: descoberta.c ja le o
+// manifesto de todo addon no arranque, para enumerar os catalogos. Antes desta
+// funcao havia dois leitores do mesmo arquivo com propositos diferentes, e o
+// que rodava sempre (o da descoberta) jogava fora exatamente o dado que faltava
+// ao outro.
+//
+// CONCORRENCIA, dita e nao escondida: escreve em `addon[i]` do fio de quem
+// chama, e outros fios leem esse vetor sem trava — o que ja era verdade da
+// sonda. O pior caso e uma leitura de `id` pela metade num quadro; quem depende
+// dele (vertudo.c) reconfere por quadro. `base`, que e o campo que os fios de
+// busca usam, nao e tocado aqui.
+void addons_manifesto_lido(int i, const char *corpo);
 
 AddEstado addons_estado(void);
 void addons_encerrar(void);

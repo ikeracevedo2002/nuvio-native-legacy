@@ -143,8 +143,25 @@ const char *ling_audio(void)    { return emVigor(localAud, contaAud); }
 
 // ------------------------------------------------------------ lista da UI
 
+// A LISTA COBRE TODA A TABELA DE NOMES, e nao um recorte de doze idiomas.
+//
+// O recorte anterior parava em "hi" e deixava de fora sueco, holandes, polones,
+// turco, tcheco, grego, hebraico e mais — todos com nome nesta mesma tabela e
+// todos aceitos por ling_casa. O efeito e o do relato do Reddit: um usuario
+// sueco abre Ajustes, nao encontra "Sueco" para escolher, e fica com o que a
+// conta trouxe. Nao havia motivo tecnico para o recorte; a linha de Ajustes
+// percorre a lista com esquerda/direita e nao tem teto proprio (ver
+// LING_MAX_OPC em ajustes.c, que acompanha este tamanho).
+//
+// ORDEM: os tres primeiros sao os idiomas com mais legenda publicada no acervo
+// que este app consulta, e depois vem o resto por nome. Ordenar tudo por nome
+// poria "Alemão" na frente de "Português" numa lista de trinta itens navegada
+// tecla por tecla.
 static const char *OPCOES_COD[] = {
-  "", "*", "pt", "en", "es", "fr", "de", "it", "ja", "ko", "zh", "ru", "ar", "hi"
+  "", "*",
+  "pt", "en", "es",
+  "de", "ar", "zh", "da", "ko", "fr", "el", "he", "nl", "hi", "hu", "id",
+  "it", "ja", "no", "pl", "ro", "ru", "sv", "th", "cs", "tr", "uk", "vi", "fi"
 };
 int ling_opcao_n(void) { return (int)(sizeof OPCOES_COD / sizeof *OPCOES_COD); }
 const char *ling_opcao_codigo(int i) {

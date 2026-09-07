@@ -84,6 +84,18 @@ typedef struct {
   // fotosDoElenco em descoberta.c). Era descartado; e por ele que se chega a
   // COLECAO do filme, que o TMDB so expoe por id proprio.
   long tmdb;
+  // QUANDO isto foi visto pela ultima vez, em ms desde a epoca. 0 = nao se sabe.
+  //
+  // Existe para ordenar a fileira "Continuar assistindo", que agora une DUAS
+  // fontes (o /sync/playback do Trakt e o progresso da conta Nuvio, que e o que
+  // chega do celular). Sem um instante que viaje COM o item nao ha como decidir
+  // qual das duas versoes da mesma obra e a atual, e a fileira sairia na ordem
+  // de quem respondeu primeiro.
+  //
+  // Precisa morar no CatItem, e nao num vetor paralelo, porque
+  // trakt_enfeitar_lote COMPACTA o lote (tira o que o Cinemeta nao conhece):
+  // um vetor de instantes indexado por posicao dessincroniza ali, em silencio.
+  long long retomadoMs;
 } CatItem;
 
 // Um episodio de serie. Vem de art/episodios.txt, gerado a partir do campo

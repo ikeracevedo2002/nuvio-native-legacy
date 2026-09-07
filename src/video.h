@@ -146,6 +146,32 @@ const char *video_hdr(void);   // hdrType cru: "none", "HDR10", "DolbyVision"...
 int  video_largura(void);
 int  video_altura(void);
 
+// --- TELA PRETA COM AUDIO TOCANDO -------------------------------------------
+//
+// NAO DA PARA DETECTAR, e isso foi MEDIDO neste aparelho, nao suposto: o uMS
+// reporta videoInfo, sourceInfo e loadCompleted normalmente nos arquivos que
+// ficam sem imagem (caso registrado: videoInfo 3840x1606 hdrType=DolbyVision,
+// loadCompleted em 3212 ms, tela preta com o audio correndo). Nao existe no uMS
+// sinal de QUADRO EXIBIDO — o currentTime avanca puxado pelo audio. A tentativa
+// de recuo automatico por prazo esta registrada como removida em video.c.
+//
+// Os dois recuos automaticos que EXISTEM cobrem o caso em que o pipeline
+// desmente a fonte (pedimos DolbyVision e o hdrType volta HDR10 ou none). O
+// caso que sobra e o pior: o pipeline CONFIRMA DolbyVision, o ACB aceita, e nao
+// ha quadro. Recuar automaticamente ali quebraria o DV que funciona de verdade
+// nos MP4 perfil 5 e 8 — e por isso a saida e a pessoa dizer que a tela esta
+// preta, em vez de o app adivinhar.
+//
+// video_forcar_sdr recarrega a MESMA fonte, na posicao atual, sem afirmar HDR
+// nenhum. A escolha vale pela sessao: uma recuperacao posterior do pipeline nao
+// traz o Dolby Vision de volta pelas costas.
+//
+// video_pode_forcar_sdr diz se o alvo tem o que renegociar — so o webOS tem.
+// No Tizen o HDR e decidido pelo AVPlay do firmware e nao ha equivalente; a
+// interface usa isto para nao oferecer um botao que nao faz nada.
+int  video_pode_forcar_sdr(void);
+void video_forcar_sdr(void);
+
 void video_encerrar(void);
 
 #endif

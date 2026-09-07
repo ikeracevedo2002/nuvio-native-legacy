@@ -4,6 +4,7 @@
 #include "home.h"
 #include "idioma.h"
 #include "catordem.h"
+#include "fileiras.h"
 #include "continuar.h"
 #include "vertudo.h"
 #include "ctxmenu.h"
@@ -66,6 +67,13 @@ typedef struct {
   char chave[192];
   int folders[MAX_CARDS];
   int stackN;
+  // Fator de TAMANHO desta fileira, escolhido em Ajustes (fileiras.c). Fica no
+  // Fileira e nao numa consulta por chave dentro do desenho: larguraDe/alturaDe
+  // sao chamadas varias vezes por fileira por QUADRO, e cada consulta por chave
+  // custa um mutex e uma varredura de 64 strings. 0 = nunca preenchido, lido
+  // como 1.0 — e o caso da tabela de reserva abaixo e das fileiras montadas com
+  // `Fileira v={0}`.
+  float escala;
 } Fileira;
 
 static char bd[MAX_ARTE][512];    int nBd = 0;    // backdrops 16:9
@@ -359,18 +367,12 @@ static float alturaDe(TipoFileira t) {
                                                               : NV_CARD_H;
   }
 }
-// Altura TOTAL que a fileira ocupa: a arte mais o bloco de rotulo, quando ele
-// existe. Sem somar o rotulo aqui, a fileira seguinte sobe por cima do texto —
-// foi o mesmo defeito que o titulo de fileira ja tinha tido sobre os cards.
 static int temRotulo(TipoFileira t) {
   // O rotulo abaixo do poster so existe no poster EM PE. No card deitado o web
   // poe a legenda DENTRO da moldura (.home-poster-landscape-copy) e esconde o
   // bloco de fora (.home-poster-card.is-landscape .home-poster-copy{display:none}).
   return t == FILEIRA_NORMAL && ajustes_rotulos_poster()
       && !ajustes_posteres_deitados();
-}
-static float alturaTotalDe(TipoFileira t) {
-  return alturaDe(t) + (temRotulo(t) ? NV_POSTER_COPY_H : 0.0f);
 }
 // O gap do tvOS e fixo em 40px e ja foi dimensionado para caber o crescimento
 // do foco: um card de 410 crescendo 9% invade 18px de cada lado. O card
@@ -433,8 +435,48 @@ static float escalaDe(TipoFileira t) {
   (void)t;
   return 0.0f;
 }
-static float passoDe(TipoFileira t) {
-  return larguraDe(t) + gapDe(t);
+// --- MEDIDA POR FILEIRA, e nao por tipo -------------------------------------
+//
+// O tipo continua dando a FORMA (proporcao e medida base, tudo medido no app
+// web); a fileira acrescenta o fator de tamanho que a pessoa escolheu em
+// Ajustes -> Fileiras da Home. Sao duas coisas: mudar a forma troca 2:3 por
+// 16:9, mudar o tamanho mantem a proporcao.
+//
+// O gap NAO entra na escala de proposito. Ele foi dimensionado para caber o
+// crescimento do foco (a nota em gapDe), e um respiro que encolhe junto com o
+// card faz dois cards grandes se encostarem exatamente quando um deles cresce.
+static float escalaFil(int r) {
+  float e = (r >= 0 && r < MAX_FIL) ? fileiras[r].escala : 0.0f;
+  return e > 0.05f ? e : 1.0f;
+}
+static float larguraFil(int r) {
+  // 680 e a largura da PILHA do Top 10, que nao sai de larguraDe: ela e uma
+  // fileira de um card so, com o ranking dentro. Estava repetida nos dois
+  // lugares que mediam a fileira e agora esta num.
+  float w = (r >= 0 && r < MAX_FIL && fileiras[r].stackN)
+          ? 680.0f : larguraDe(fileiras[r].tipo);
+  return w * escalaFil(r);
+}
+static float alturaFil(int r)      { return alturaDe(fileiras[r].tipo) * escalaFil(r); }
+// Altura TOTAL que a fileira ocupa: a arte mais o bloco de rotulo, quando ele
+// existe. Sem somar o rotulo aqui, a fileira seguinte sobe por cima do texto —
+// foi o mesmo defeito que o titulo de fileira ja tinha tido sobre os cards.
+static float alturaTotalFil(int r) {
+  return alturaFil(r) + (temRotulo(fileiras[r].tipo) ? NV_POSTER_COPY_H : 0.0f);
+}
+static float passoFil(int r)       { return larguraFil(r) + gapDe(fileiras[r].tipo); }
+
+// FilTipo (escolha em Ajustes) -> TipoFileira (forma que o desenho conhece).
+// A traducao vive aqui porque este e o unico arquivo que sabe o que cada forma
+// mede; fileiras.h nao pode incluir home.h sem fechar um ciclo de headers.
+static TipoFileira tipoDaEscolha(int t) {
+  switch (t) {
+    case FIL_TIPO_CARTAZ:   return FILEIRA_NORMAL;
+    case FIL_TIPO_DESTAQUE: return FILEIRA_DESTAQUE;
+    case FIL_TIPO_COLECAO:  return FILEIRA_COLECAO;
+    case FIL_TIPO_SERVICO:  return FILEIRA_SERVICO;
+    default:                return FILEIRA_TOP10;
+  }
 }
 
 int home_iniciar(const char *dirArte) {
@@ -482,6 +524,18 @@ void home_evento(const SDL_Event *e) {
       }
       return;
     } else if (e->type == SDL_KEYUP && ehOk) {
+      // SOLTAR SEM TER PRESSIONADO AQUI NAO E CLIQUE — a mesma guarda que
+      // detail.c ja tem, e que faltava nesta tela.
+      //
+      // A barra lateral decide no KEYDOWN (menu.c: escolher()) e se fecha ali
+      // mesmo. O KEYUP do MESMO toque chega quando menu_aberto() ja e 0, e o
+      // roteador de app.c entao o entrega a home — que abria o card em foco.
+      // Escolhendo "Trocar de usuário" no rodape o efeito era o do issue #8: o
+      // app ia para a tela de perfis e, ao voltar para a home, o pedido de
+      // abrir que ficou pendente disparava e "abria um filme aleatorio de
+      // Continuar assistindo". Vale para todo item da barra, e o mesmo para o
+      // OK que fecha qualquer folha desenhada acima da home.
+      if (!okPressionando) { okDesde = 0; okHold = 0.0f; return; }
       if (okConsumirSoltura) {
         okConsumirSoltura = 0;
         okDesde = 0;
@@ -581,6 +635,14 @@ static void sincronizarFileiras(void) {
   int assin = assinaturaPrefs();
   static unsigned ultimaRevisao;
   unsigned revisao = 2166136261u;
+  // A escolha LOCAL de fileiras entra na mesma assinatura do catalogo: ordem,
+  // liga/desliga, forma, tamanho e limite mudam a lista tanto quanto uma
+  // fileira nova da rede. Sem isto, sair de Ajustes deixaria a home igual ate a
+  // proxima publicacao da descoberta — que e o defeito que a assinatura de
+  // preferencias logo acima existe para nao repetir. Duas chamadas por quadro,
+  // nao uma varredura: fil_revisao e fil_limite leem um inteiro sob mutex.
+  revisao = (revisao ^ fil_revisao()) * 16777619u;
+  revisao = (revisao ^ (unsigned)fil_limite()) * 16777619u;
   for (r = 0; r < nCat; r++) {
     const CatFileira *cf = cat_fileira(r);
     if (!cf) break;
@@ -720,6 +782,16 @@ static void sincronizarFileiras(void) {
       }
     }
   }
+  // FORMA E TAMANHO ESCOLHIDOS POR FILEIRA (Ajustes -> Fileiras da Home).
+  // Aplicado AQUI, antes da normalizacao do Top 10 logo abaixo: quem escolhe
+  // "Top 10" espera a pilha com o ranking, e ela sai daquele laco. Depois dele,
+  // a mesma escolha viraria uma fileira de cartazes de 212 px — o ajuste
+  // pareceria sem efeito.
+  for(int i=0;i<destino;i++) {
+    int t = fil_tipo(fileiras[i].chave);
+    fileiras[i].escala = fil_escala(fileiras[i].chave);
+    if (t != FIL_TIPO_AUTO) fileiras[i].tipo = tipoDaEscolha(t);
+  }
   for(int i=0;i<destino;i++) {
     Fileira *s=&fileiras[i];s->stackN=0;
     if(s->tipo==FILEIRA_TOP10 && s->base[0] && s->catId[0]) {
@@ -748,6 +820,51 @@ static void sincronizarFileiras(void) {
     fileiras[0].tipo = FILEIRA_RETORNO;
     fileiras[0].ini = retomarIndice; fileiras[0].n = 1;
     destino++;
+  }
+  // --- ESCOLHA LOCAL: registro, ordem, ocultacao e LIMITE --------------------
+  //
+  // POR QUE AQUI E NAO NA DESCOBERTA. A descoberta ja corta o que vai PEDIR
+  // pela rede (menos fileiras = menos GET, e e la que o limite economiza
+  // trabalho de verdade), mas ela nao conhece a lista final: o feed dos amigos,
+  // os grupos de colecao e "Retomar agora" nascem aqui. O limite que a pessoa
+  // ve tem de valer sobre o que a tela desenha, entao o corte final e neste
+  // ponto — e e um corte na LISTA, nao no desenho: fileira invisivel desenhada
+  // continuaria custando quadro.
+  //
+  // Cortar a lista e seguro para o foco e para a rolagem porque as duas coisas
+  // sao reencontradas por CHAVE mais abaixo, nunca por indice.
+  {
+    // static, e nao pilha: sao ~35 KB e esta funcao ja carrega dois vetores
+    // desse tamanho (antigas, orig). Roda so no fio de desenho.
+    static Fileira arranjo[MAX_FIL];
+    const char *ch[MAX_FIL];
+    int ord[MAX_FIL], q, k, w = 0, lim = fil_limite();
+    for (q = 0; q < destino; q++) {
+      // REGISTRA TAMBEM O QUE VAI SAIR abaixo. E o registro que deixa a tela de
+      // Ajustes RELIGAR uma fileira desligada: desligada, ela nao existe mais
+      // nem aqui nem em cat_fileira(), e sem a lista de conhecidas desligar
+      // seria irreversivel pela TV.
+      if (strcmp(fileiras[q].chave, "last_session"))
+        fil_registrar(fileiras[q].chave, fileiras[q].titulo);
+      ch[q] = fileiras[q].chave;
+    }
+    fil_gravar_registro();
+    // "Retomar agora" e contexto do player, nao fileira de catalogo: fica presa
+    // no topo, fora da ordem e fora do liga/desliga. Ela aparece por causa de
+    // uma sessao interrompida e desaparece sozinha; deixar a pessoa mover ou
+    // desligar uma fileira que ela nao controla seria um ajuste fantasma.
+    if (destino > 0 && !strcmp(fileiras[0].chave, "last_session"))
+      arranjo[w++] = fileiras[0];
+    q = fil_unir(ch, destino, ord, MAX_FIL);
+    for (k = 0; k < q && w < MAX_FIL; k++) {
+      Fileira *f = &fileiras[ord[k]];
+      if (!strcmp(f->chave, "last_session")) continue;
+      if (fil_oculta(f->chave)) continue;
+      arranjo[w++] = *f;
+    }
+    if (w > lim) w = lim;
+    memcpy(fileiras, arranjo, sizeof(Fileira) * (size_t)w);
+    destino = w;
   }
   nFileiras = destino;
   retomarAplicada = retomarRev;
@@ -794,7 +911,11 @@ static void sincronizarFileiras(void) {
                   : (foco.nColunas[achou] > 0 ? foco.nColunas[achou] - 1 : 0);
     }
   }
-  printf("[home] %d fileiras vindas do catalogo\n", nFileiras);
+  // Diz TAMBEM o limite e quantas vinham do catalogo. Com um numero so, uma
+  // home de 5 fileiras nao distinguia "o limite e 5" de "so 5 catalogos
+  // responderam" — as duas perguntas que o dono faz quando a home vem curta.
+  printf("[home] %d fileiras na tela (limite %d, %d fileira(s) no catalogo)\n",
+         nFileiras, fil_limite(), nCat);
 }
 
 int home_tem_fileiras(void) { return nFileiras > 0; }
@@ -919,8 +1040,8 @@ void home_atualizar(float dt, Uint32 agora) {
       // proporcional a coluna, como estava, jogava o primeiro card para fora da
       // tela assim que o foco ia para o segundo — some conteudo a esquerda sem
       // que o usuario tenha andado ate la.
-      float lw = fileiras[r].stackN ? 680.0f : larguraDe(fileiras[r].tipo);
-      float passo = lw + gapDe(fileiras[r].tipo);
+      float lw = larguraFil(r);
+      float passo = passoFil(r);
       float esq = (float)foco.coluna * passo;
       float dir = esq + lw;
       float util = NV_TELA_W - ajustes_conteudo_x() - NV_HOME_SAFE_RIGHT;
@@ -954,7 +1075,7 @@ void home_atualizar(float dt, Uint32 agora) {
   float alvoY = 0.0f;
   { int r = foco.fileira;
     for (int i = 0; i < r && i < nFileiras; i++)
-      alvoY += NV_LEGACY_ROW_HEAD_H + alturaTotalDe(fileiras[i].tipo) + fileiraGap();
+      alvoY += NV_LEGACY_ROW_HEAD_H + alturaTotalFil(i) + fileiraGap();
   }
   scrollY = anim_mola2_reduzida(&velY, scrollY, alvoY, dt,
                                 NV_MOLA2_SCROLL, motionReduzido);
@@ -1390,10 +1511,10 @@ static void desenhaFundo(void) {
 }
 
 static void desenhaAtalhos(int r, float y) {
-  float w = larguraDe(FILEIRA_CATALOGOS), h = alturaDe(FILEIRA_CATALOGOS);
+  float w = larguraFil(r), h = alturaFil(r);
   static int ultimo=-1;static Uint32 desde;
   for (int c = 0; c < fileiras[r].n; c++) {
-    float x = ajustes_conteudo_x() + c * passoDe(FILEIRA_CATALOGOS) - scrollX[r];
+    float x = ajustes_conteudo_x() + c * passoFil(r) - scrollX[r];
     if (x + w < 0 || x > NV_TELA_W) continue;
     float f = animFoco[r][c], raio = raioDe(w, h);
     GfxRect card = {x, y, w, h};
@@ -1462,12 +1583,25 @@ void home_desenhar(Uint32 agora) {
   // sumir. O hero nao rola: so o conteudo dele muda com o foco.
   gfx_recorte(0, NV_SHELF_TOP-96, NV_TELA_W, NV_TELA_H - NV_SHELF_TOP+96);
   float y = NV_SHELF_TOP - scrollY + descida;
+  // NENHUMA FILEIRA. Nao e o arranque (ali a home mostra o catalogo do pacote
+  // ou o do cache): e o caso de a pessoa ter desligado todas em Ajustes. Sem
+  // texto, o hero sozinho com o resto da tela vazia le como travamento — e ela
+  // nao teria como adivinhar que foi ela quem apagou a home.
+  if (nFileiras < 1) {
+    float tx = ajustes_conteudo_x();
+    TxtLinha t = txt_linha(TXT_ROW_TITULO, "Nenhuma fileira ativa", 240, 241, 245, 255);
+    txt_desenhar(t, tx, NV_SHELF_TOP);
+    txt_bloco(TXT_CAPTION,
+              "Ative fileiras em Ajustes, na categoria Fileiras da Home.",
+              183, 186, 194, tx, NV_SHELF_TOP + t.h + 14.0f,
+              NV_TELA_W - tx - NV_HOME_SAFE_RIGHT, 34, 1, 2);
+  }
   for (int r = 0; r < nFileiras; r++) {
     TipoFileira tipo = fileiras[r].tipo;
     float fade=anim_clamp((y-(NV_SHELF_TOP-80))/80,0,1);
     gfx_opacidade_grupo=fade*fade*(3-2*fade);
-    float lw = fileiras[r].stackN ? 680.0f : larguraDe(tipo);
-    float lh = alturaDe(tipo), passo = lw + gapDe(tipo);
+    float lw = larguraFil(r);
+    float lh = alturaFil(r), passo = passoFil(r);
     float artH = lh;
     // `y` é o topo do cabeçalho da fileira; os cards começam depois do título.
     // Separar os dois evita que o título da fileira seguinte seja desenhado
@@ -1521,7 +1655,7 @@ void home_desenhar(Uint32 agora) {
       }
       if (tipo == FILEIRA_CATALOGOS) {
         desenhaAtalhos(r, cardY);
-        y += NV_LEGACY_ROW_HEAD_H + alturaTotalDe(tipo) + fileiraGap();
+        y += NV_LEGACY_ROW_HEAD_H + alturaTotalFil(r) + fileiraGap();
         continue;
       }
 
@@ -1960,7 +2094,7 @@ void home_desenhar(Uint32 agora) {
         }
       }
     }
-    y += NV_LEGACY_ROW_HEAD_H + alturaTotalDe(tipo) + fileiraGap();
+    y += NV_LEGACY_ROW_HEAD_H + alturaTotalFil(r) + fileiraGap();
   }
   gfx_opacidade_grupo=1;
   gfx_sem_recorte();

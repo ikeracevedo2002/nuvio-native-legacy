@@ -285,6 +285,13 @@ int trakt_continuar(CatItem *saida, int max) {
       char imdb[24] = "";
       memset(d, 0, sizeof *d);
       d->progresso = (int)js_num(p, f, "progress", 0.0);
+      // QUANDO foi pausado. E o unico dado desta resposta que permite comparar
+      // um item do Trakt com um do progresso da conta Nuvio: sem ele a fileira
+      // "Continuar assistindo" tinha de chutar a ordem entre as duas fontes.
+      // Ver retomadoMs em catalogo.h e montarContinuar em descoberta.c.
+      { char quando[40];
+        if (js_texto(p, f, "paused_at", quando, sizeof quando))
+          d->retomadoMs = js_ms_iso(quando); }
       // O bloco "movie"/"show" tem o titulo e os ids; o "episode" traz
       // temporada e numero. Procurar "imdb" na faixa inteira pegaria o do
       // episodio, que os addons tambem aceitam mas nao identifica a obra.

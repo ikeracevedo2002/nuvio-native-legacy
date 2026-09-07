@@ -19,6 +19,22 @@ typedef struct {
 
 void focus_iniciar(Foco *f, int nFileiras, const int *nColunas);
 int  focus_mover(Foco *f, int dx, int dy);   // 1 se moveu
+
+// GRADE: sobe e desce MANTENDO a coluna, sem memoria por fileira.
+//
+// A memoria de coluna acima e certa para FILEIRAS de conteudo, onde cada uma
+// tem um comprimento proprio e a pessoa "guarda o lugar" em cada. Numa GRADE
+// ela e um defeito visivel: o teclado da busca tem 6 colunas por fileira, e
+// descer da letra "f" (coluna 5) caia na coluna 0 da fileira seguinte, porque
+// era ali que o cursor tinha estado por ultimo NAQUELA fileira — no "g" em vez
+// do "l". Do sofa isso se le exatamente como o relato do issue #4: "se eu movo
+// para baixo ou para cima, pula para uma letra aleatoria". A grade de posteres
+// da biblioteca tem o mesmo defeito, pelo mesmo motivo.
+//
+// Aqui a coluna e PRESERVADA e apenas presa ao fim da fileira de destino
+// quando ela e mais curta (a ultima fileira do teclado tem 3 teclas, nao 6).
+int  focus_mover_grade(Foco *f, int dx, int dy);
+
 int  focus_indice(const Foco *f, int fileira, int coluna);
 
 #endif

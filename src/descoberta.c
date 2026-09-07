@@ -2,6 +2,7 @@
 #include "idioma.h"
 #include "ajustes.h"
 #include "catordem.h"
+#include "fileiras.h"
 #include "marco.h"
 #include <SDL2/SDL.h>
 #include "catalogo.h"
@@ -166,6 +167,38 @@ static void fotosDoElenco(CatItem *d, const char *imdbSerie, int serie) {
   free(corpo);
   if (!idTmdb) return;
   d->tmdb = idTmdb;
+
+  // TITULO E SINOPSE NO IDIOMA DA INTERFACE.
+  //
+  // O titulo que a tela mostrava vinha do CATALOGO do addon — Cinemeta e afins
+  // respondem em ingles e nao tem parametro de idioma. Ou seja: o app em
+  // portugues, com o TMDB configurado em portugues, mostrava "Motor City" e a
+  // sinopse em ingles, e nao havia ajuste que mudasse isso porque nao havia
+  // caminho. E o issue #8. Aqui existe: o id do TMDB acabou de ser resolvido
+  // logo acima, entao localizar custa UM pedido a mais numa funcao que ja faz
+  // tres — e ela roda uma vez por titulo ABERTO, num fio proprio, nao por card
+  // da home.
+  //
+  // js_texto_raiz e nao js_texto: numa resposta /tv o "name" aparece dentro de
+  // created_by[], genres[], networks[] e seasons[], e os primeiros vem ANTES do
+  // "name" da raiz na ordem que o TMDB emite — a leitura crua traria um GENERO
+  // no lugar do titulo da serie. Mesma coisa com "overview" e as temporadas.
+  //
+  // CAMPO VAZIO NAO SUBSTITUI: o TMDB responde 200 com "" no titulo e na
+  // sinopse quando ninguem traduziu aquele filme, e trocar o ingles por vazio
+  // deixaria a tela SEM titulo. Falta de traducao continua mostrando o
+  // original, que e o comportamento honesto.
+  snprintf(url, sizeof url, "%s/%s/%ld?api_key=%s&language=%s",
+           TMDB, serie ? "tv" : "movie", idTmdb, tmdbChave, desc_tmdb_idioma());
+  corpo = rede_baixar(url, 20);
+  if (corpo) {
+    char t[160], sin[900];
+    if (js_texto_raiz(corpo, serie ? "name" : "title", t, sizeof t) && t[0])
+      snprintf(d->titulo, sizeof d->titulo, "%s", t);
+    if (js_texto_raiz(corpo, "overview", sin, sizeof sin) && sin[0])
+      snprintf(d->sinopse, sizeof d->sinopse, "%s", sin);
+    free(corpo);
+  }
 
   snprintf(url, sizeof url, "%s/%s/%ld/credits?api_key=%s",
            TMDB, serie ? "tv" : "movie", idTmdb, tmdbChave);
@@ -492,6 +525,22 @@ static int buscando;
 // `volatile` porque sao fios diferentes; nao ha corrida real de valor — o pior
 // caso e uma remontagem a mais, que e barata perto de perder o pedido.
 static volatile int repetirAoFim;
+// GERACAO DO PEDIDO DE REMONTAGEM, e a razao dela existir esta medida.
+//
+// `repetirAoFim` sozinho nao distingue duas coisas muito diferentes: um pedido
+// que chegou ANTES de o ciclo ler a lista de addons — e que portanto ja foi
+// atendido por este mesmo ciclo — de um que chegou DEPOIS, e que exige outra
+// volta.
+//
+// MEDIDO na C9, arranque com conta: sync publica os addons da conta em ~2 s, o
+// ciclo comeca em 0,9 s e so chega aos manifestos em ~7 s. Ou seja o ciclo em
+// curso JA leu a lista nova — e mesmo assim a marca fazia uma segunda volta
+// completa, com 14 s de Trakt e manifestos refeitos, terminando em t=40 s em
+// vez de t=18 s. A segunda volta produzia exatamente o mesmo resultado da
+// primeira: da para conferir no log, as duas linhas de `[desc] catalogos:` sao
+// identicas.
+static volatile unsigned geracaoPedida;
+static unsigned geracaoLida;
 static pthread_t fio, fioEp;
 static int epItem = -1, epTemp, fioEpVivo;
 
@@ -594,12 +643,18 @@ static int deMeta(const char *ini, const char *fim, const char *tipo, CatItem *d
 }
 
 // Le um catalogo (movie|series) de um addon e acrescenta ao vetor.
+//
+// `respondeu` (pode ser NULL) separa os dois zeros que sairiam iguais: 0 com
+// resposta e "o catalogo esta VAZIO hoje", 0 sem resposta e "o addon nao
+// respondeu em 8 s". Do lado de fora os dois viravam a mesma fileira ausente, e
+// era exatamente por isso que nao dava para dizer o que falhou num arranque.
 static int lerCatalogo(const char *base, const char *tipo, const char *id,
-                       CatItem *saida, int max, int quantos) {
+                       CatItem *saida, int max, int quantos, int *respondeu) {
   char url[900];
   char *corpo;
   const char *p;
   int n = 0;
+  if (respondeu) *respondeu = 0;
   snprintf(url, sizeof url, "%s/catalog/%s/%s.json", base, tipo, id);
   // 8 s e nao 25: um addon fora do ar segurava um dos tres fios por 25 s, e a
   // fileira dele atrasa TODAS as seguintes porque a montagem caminha em ordem.
@@ -608,6 +663,7 @@ static int lerCatalogo(const char *base, const char *tipo, const char *id,
   // decode. Um catalogo que nao responde em 8 s nao vai responder.
   corpo = rede_baixar(url, 8);
   if (!corpo) return 0;
+  if (respondeu) *respondeu = 1;
   p = js_array(corpo, NULL, "metas");
   while (p && n < max && n < quantos) {
     const char *f = js_fim(p);
@@ -707,9 +763,14 @@ static void lerPrefs(void) {
 // desliga pela ordenacao grava a chave curta.
 static int desligada(const Decl *d) {
   int i;
+  // A escolha feita NA TV (Ajustes -> Fileiras da Home) vem primeiro. Ela e
+  // local de proposito e nunca sobe para a conta — a trava esta no topo de
+  // catordem.h e repetida em fileiras.h. Sem esta precedencia, desligar uma
+  // fileira aqui seria desfeito pelo proximo ciclo de sync.
+  if (fil_oculta(d->chave)) return 1;
   // A conta manda junto com o arquivo local, nao no lugar dele: quem desligou
-  // uma fileira no app web ve a TV concordar, e quem desligou so na TV (que
-  // nao tem tela para isso hoje, mas tem o arquivo) continua valendo.
+  // uma fileira no app web ve a TV concordar, e quem desligou so na TV
+  // continua valendo.
   if (catordem_oculta(d->chave, d->desativar)) return 1;
   for (i = 0; i < nPrefOff; i++)
     if (!strcmp(prefOff[i], d->chave) || !strcmp(prefOff[i], d->desativar)) return 1;
@@ -733,7 +794,7 @@ static void formatarTitulo(const char *nome, const char *tipo, char *dst, size_t
 }
 
 // Le <base>/manifest.json e acrescenta os catalogos declarados.
-static int lerManifesto(const char *base, Decl *saida, int max) {
+static int lerManifesto(int iAddon, const char *base, Decl *saida, int max) {
   char url[900], addonId[96] = "", nome[96], tipo[8], id[96];
   char *corpo;
   const char *p, *fim;
@@ -742,7 +803,15 @@ static int lerManifesto(const char *base, Decl *saida, int max) {
   corpo = rede_baixar(url, 20);
   if (!corpo) return 0;
   fim = corpo + strlen(corpo);
-  js_texto(corpo, fim, "id", addonId, sizeof addonId);
+  // O MESMO CORPO SERVE AOS DOIS LEITORES. Ver addons_manifesto_lido: sem esta
+  // linha o id e as capacidades do addon so eram aprendidos por quem abrisse a
+  // tela de addons nos Ajustes, e sem o id nenhuma colecao da conta encontrava
+  // a URL do proprio addon (issue #10).
+  addons_manifesto_lido(iAddon, corpo);
+  // Chave da RAIZ: um manifesto tem "id" tambem dentro de catalogs[] e de
+  // behaviorHints, e ha addon que escreve "catalogs" antes de "id" — a leitura
+  // crua trazia o id de um CATALOGO como se fosse o do addon. Ver js_texto_raiz.
+  js_texto_raiz(corpo, "id", addonId, sizeof addonId);
   p = js_array(corpo, fim, "catalogs");
   // Sem `n < max` na condicao: o vetor de fileiras pode encher, mas a varredura
   // continua ate o fim do manifesto porque os catalogos de BUSCA costumam estar
@@ -828,6 +897,7 @@ typedef struct {
   const Decl *d;
   CatItem itens[MAX_POR_FILEIRA];
   int  n;
+  int  respondeu;
   int  pronto;
 } TarefaCat;
 
@@ -838,7 +908,7 @@ static pthread_mutex_t catTrava = PTHREAD_MUTEX_INITIALIZER;
 static void *fioCatalogo(void *u) {
   (void)u;
   for (;;) {
-    int meu, got;
+    int meu, got, respondeu = 0;
     const Decl *d;
     pthread_mutex_lock(&catTrava);
     if (proximaTarefa >= nTarefas) { pthread_mutex_unlock(&catTrava); return NULL; }
@@ -847,10 +917,11 @@ static void *fioCatalogo(void *u) {
     pthread_mutex_unlock(&catTrava);
 
     got = lerCatalogo(d->base, d->tipo, d->id, tarefas[meu].itens,
-                      MAX_POR_FILEIRA, MAX_POR_FILEIRA);
+                      MAX_POR_FILEIRA, MAX_POR_FILEIRA, &respondeu);
 
     pthread_mutex_lock(&catTrava);
     tarefas[meu].n = got;
+    tarefas[meu].respondeu = respondeu;
     tarefas[meu].pronto = 1;
     pthread_mutex_unlock(&catTrava);
   }
@@ -884,6 +955,10 @@ static int continuarLocal(CatItem *saida, int max) {
     d = &saida[n];
     memset(d, 0, sizeof *d);
     d->progresso = (int)(100.0 * p);
+    // O instante ja esta aqui, no registro: carimbar agora poupa a busca por
+    // chave que instanteDaConta faria depois, e sobrevive a compactacao do
+    // trakt_enfeitar_lote. Ver retomadoMs em catalogo.h.
+    d->retomadoMs = r->lastWatchedMs;
     if (r->episodio > 0) {
       d->temporada = r->temporada;
       d->episodio  = r->episodio;
@@ -901,6 +976,152 @@ static int continuarLocal(CatItem *saida, int max) {
   return n;
 }
 
+// --- "CONTINUAR ASSISTINDO": AS DUAS FONTES, UNIDAS ---------------------------
+//
+// O DEFEITO (issue #5, "Nuvio Sync Issue"). A linha era
+//   `if (nContinuar == 0 && !trakt_ativo()) nContinuar = continuarLocal(...)`
+// ou seja: com o Trakt vinculado a fileira saia EXCLUSIVAMENTE do Trakt e o
+// progresso da CONTA Nuvio — que e o que chega do celular da pessoa, via
+// syncprog.c -> progresso.c, e o que continuarLocal le — era simplesmente
+// ignorado. As duas metades do relato sao essa unica linha:
+//   "assisto no celular e na TV nao aparece em Continuar assistindo"
+//     -> o registro da conta existia no disco e nunca era lido;
+//   "aparecem filmes e series que eu nunca assisti"
+//     -> vinham do /sync/playback antigo do Trakt, que guarda tudo que algum
+//        cliente Trakt ja pausou, e o caminho do Trakt NAO aplicava os limites
+//        de 1% a 90% que o caminho local sempre aplicou.
+//
+// POR QUE A UNIAO E A RESPOSTA CERTA, e nao escolher uma fonte: as duas
+// respondem a mesma pergunta sobre universos DIFERENTES. O Trakt sabe o que a
+// pessoa assistiu em qualquer cliente Trakt; a conta Nuvio sabe o que ela
+// assistiu nos aparelhos Nuvio dela. Escolher uma joga fora metade do
+// historico, e foi isso que aconteceu — em qualquer das duas direcoes o dono
+// perde. Deduplicar por imdb e ordenar pelo instante mais recente da o que ele
+// pediu: uma fileira so, com o que ele assistiu, onde quer que tenha assistido.
+//
+// QUANDO AS DUAS DISCORDAM DO MESMO TITULO, A MAIS RECENTE GANHA. E ai esta a
+// aproximacao que sobra: `trakt_continuar` NAO expoe o `paused_at` que vem no
+// JSON de /sync/playback, entao o instante de um item do Trakt so e conhecido
+// quando existe um registro local com a mesma chave (prog_por_chave). Sem
+// instante, o item do Trakt perde do que tem instante e mantem a posicao
+// relativa que o Trakt lhe deu. Expor `paused_at` em trakt.c troca esta regra
+// por uma comparacao exata; ate la, dado desconhecido ordena DEPOIS do
+// conhecido em vez de virar um instante inventado.
+#define CONT_MAX 8
+
+// Os limites que o caminho local sempre teve e o do Trakt nao: os mesmos de
+// home_registrar_retorno. Abaixo de 1% nao se comecou, de 90% em diante
+// acabou — e "continuar" nao e nem uma coisa nem a outra.
+static int emAndamento(int pct) { return pct >= 1 && pct < 90; }
+
+// QUANDO este item foi visto por ultimo, em ms. 0 = nao se sabe.
+//
+// Tres fontes, na ordem de confianca:
+//   1. o instante que veio COM o item. O do Trakt e o `paused_at` do
+//      /sync/playback; o da conta e o last_watched que o syncprog ja
+//      reconciliou entre celular e TV. Os dois sao carimbados na origem.
+//   2. o registro LOCAL desta obra, quando o item nao trouxe instante — e o
+//      caso de um item do Trakt que este aparelho tambem assistiu.
+//   3. nada. Ai o desempate e a ordem que a propria fonte deu, e nao uma data
+//      inventada (ver o campo `ord` em montarContinuar).
+//
+// O passo 2 existia sozinho antes, e era insuficiente: um titulo que a pessoa
+// assiste SO em outro aparelho e por outro cliente Trakt nao tem registro local
+// nenhum, entao TODO item do Trakt entrava com instante 0 e a fileira ordenava
+// pela ordem de resposta.
+static long long instanteDaConta(const CatItem *c) {
+  ProgRegistro r;
+  char id[24], chave[48];
+  int temp = c->temporada, ep = c->episodio;
+  if (c->retomadoMs > 0) return c->retomadoMs;
+  prog_content_id(id, sizeof id, c->imdb, &temp, &ep);
+  prog_chave(chave, sizeof chave, id, temp, ep);
+  if (!prog_por_chave(chave, &r)) return 0;
+  return r.lastWatchedMs;
+}
+
+// 1 quando os dois itens sao a MESMA OBRA. O teste e o de continuarLocal:
+// compara so a parte antes do ':', porque "tt123:4:9" e "tt123:1:2" sao dois
+// episodios da mesma serie e a fileira mostra a serie uma vez.
+static int mesmaObra(const CatItem *a, const CatItem *b) {
+  char ia[24], ib[24];
+  prog_content_id(ia, sizeof ia, a->imdb, NULL, NULL);
+  prog_content_id(ib, sizeof ib, b->imdb, NULL, NULL);
+  return ia[0] && !strcmp(ia, ib);
+}
+
+// Um candidato da fileira, com o que se sabe sobre QUANDO ele aconteceu.
+typedef struct { CatItem *item; long long ms; int ord; } Cand;
+
+static int montarContinuar(CatItem *saida, int max) {
+  // static: dois lotes de 8 CatItem passam de 50 KB e montar() roda uma vez,
+  // num fio so — a mesma razao do vetor de Decl mais abaixo.
+  static CatItem doTrakt[CONT_MAX], daConta[CONT_MAX];
+  static Cand juntos[CONT_MAX * 2];
+  int nT, nL, nJ = 0, i, j, w, fora = 0, repetidos = 0;
+
+  if (max > CONT_MAX) max = CONT_MAX;
+  nT = trakt_continuar(doTrakt, CONT_MAX);
+  // Os limites AGORA valem para as duas fontes. Sem isto, o /sync/playback
+  // devolve o que qualquer cliente Trakt pausou uma vez — inclusive titulos em
+  // 0% e titulos praticamente terminados, que e o "nunca assisti isso" do
+  // relato.
+  for (i = 0, w = 0; i < nT; i++) {
+    if (!emAndamento(doTrakt[i].progresso)) { fora++; continue; }
+    if (w != i) doTrakt[w] = doTrakt[i];
+    w++;
+  }
+  nT = w;
+  nL = continuarLocal(daConta, CONT_MAX);
+
+  // A CONTA ENTRA PRIMEIRO porque ela e a fonte DATADA (lastWatchedMs, que o
+  // syncprog ja reconciliou entre celular e TV). O item do Trakt que fala da
+  // mesma obra sai: manter os dois poria a mesma serie duas vezes na fileira,
+  // que e o defeito que continuarLocal ja evitava dentro da propria lista.
+  for (i = 0; i < nL && nJ < (int)(sizeof juntos / sizeof *juntos); i++) {
+    juntos[nJ].item = &daConta[i];
+    juntos[nJ].ms   = instanteDaConta(&daConta[i]);
+    juntos[nJ].ord  = i;
+    nJ++;
+  }
+  for (i = 0; i < nT && nJ < (int)(sizeof juntos / sizeof *juntos); i++) {
+    int repetido = 0;
+    for (j = 0; j < nL; j++)
+      if (mesmaObra(&doTrakt[i], &daConta[j])) { repetido = 1; break; }
+    if (repetido) { repetidos++; continue; }
+    juntos[nJ].item = &doTrakt[i];
+    juntos[nJ].ms   = instanteDaConta(&doTrakt[i]);
+    // Ordem BASE alta: SO decide quando os dois instantes sao desconhecidos ou
+    // iguais. Com o paused_at lido em trakt.c isso ficou raro — antes era o
+    // caso comum, porque todo item do Trakt chegava sem instante.
+    // Nesse resto de casos a conta vem antes, cada fonte na ordem que deu.
+    juntos[nJ].ord  = 1000 + i;
+    nJ++;
+  }
+
+  // Insercao: estavel, nJ <= 16, e roda uma vez por ciclo de descoberta.
+  for (i = 1; i < nJ; i++) {
+    int k = i;
+    while (k > 0) {
+      long long a = juntos[k].ms, b = juntos[k - 1].ms;
+      int troca;
+      if (a != b) troca = !b ? 0 : (!a ? 1 : a > b);
+      else        troca = juntos[k].ord < juntos[k - 1].ord;
+      if (!troca) break;
+      { Cand t = juntos[k - 1]; juntos[k - 1] = juntos[k]; juntos[k] = t; }
+      k--;
+    }
+  }
+
+  if (nJ > max) nJ = max;
+  for (i = 0; i < nJ; i++) saida[i] = *juntos[i].item;
+  printf("[desc] continuar assistindo: %d do Trakt (%d fora de 1-90%%), "
+         "%d da conta, %d repetido(s); %d na fileira\n",
+         nT, fora, nL, repetidos, nJ);
+  fflush(stdout);
+  return nJ;
+}
+
 static void *montar(void *u) {
   // O lote tambem cresce: era dimensionado por CAT_MAX e por isso herdava o
   // mesmo teto arbitrario.
@@ -915,13 +1136,10 @@ static void *montar(void *u) {
   // posicoes do catalogo nessa fileira, entao a ordem aqui e o que define o
   // que aparece la — e o historico tem de ganhar das recomendacoes.
   marco("montar: inicio");
-  nContinuar = trakt_continuar(lote, 8);
-  // Sem Trakt, a fileira sai do progresso LOCAL (progresso.c): o que se
-  // assistiu aqui e o que a conta Nuvio trouxe dos outros aparelhos. Ate
-  // agora ela simplesmente nao existia para quem nao vincula o Trakt — e e
-  // ela que o login promete (PLANO-PROGRESSO.md 1.5). Com Trakt ativo, ele
-  // manda sozinho; nao misturamos as duas fontes.
-  if (nContinuar == 0 && !trakt_ativo()) nContinuar = continuarLocal(lote, 8);
+  // AS DUAS FONTES, UNIDAS. Ver o cabecalho de montarContinuar: com Trakt
+  // vinculado esta fileira ignorava o progresso da conta Nuvio, que e o que
+  // chega do celular do dono.
+  nContinuar = montarContinuar(lote, 8);
   n += nContinuar;
   marco("trakt continuar assistindo");
   // O feed social oficial e uma fileira propria, logo depois do retorno ao
@@ -1006,9 +1224,13 @@ static void *montar(void *u) {
     // seguinte nem era baixado, e AIOStreams e Akashi TV ficavam invisiveis
     // para o app inteiro so porque o Xperience, lido antes, declara 605
     // catalogos. lerManifesto ja para de GRAVAR sozinho quando enche.
+    // A LISTA DE ADDONS E LIDA AQUI. Marcar o instante e o que permite dizer,
+    // no fim, se um pedido de remontagem que chegou no meio do caminho ja foi
+    // atendido por esta volta. Ver geracaoPedida.
+    geracaoLida = geracaoPedida;
     for (i = 0; i < addons_n(); i++) {
       if (!addons_tem_catalogo(i)) continue;
-      nDecl += lerManifesto(addons_base(i), decls + nDecl, DECL_MAX - nDecl);
+      nDecl += lerManifesto(i, addons_base(i), decls + nDecl, DECL_MAX - nDecl);
     }
     printf("[desc] %d catalogos declarados pelos addons\n", nDecl);
 
@@ -1049,95 +1271,187 @@ static void *montar(void *u) {
         nOrdem = q;
       }
 
-      int marcouPrimeira = 0;
-      // ETAPA 1 — escolher e ORDENAR as fileiras que serao lidas. Os filtros
-      // (desligada, titulo personalizado) sao locais e baratos; fazer isto
-      // antes deixa os fios so com a parte cara, que e a rede.
-      nTarefas = 0; proximaTarefa = 0;
-      tarefas = calloc(CAT_FIL_MAX, sizeof(TarefaCat));
-      for (k = 0; k < nOrdem && nTarefas < CAT_FIL_MAX; k++) {
+      // ORDEM LOCAL POR CIMA DA DA CONTA, mesma regra de uniao e um motivo a
+      // mais: catordem.c e SO LEITURA porque a TV nao pode empurrar de volta
+      // (a trava esta no topo de catordem.h), entao sem esta precedencia a
+      // ordem que a pessoa arruma aqui seria desfeita pelo proximo sync.
+      if (fil_tem_ordem() && nOrdem > 0) {
+        const char *chaves[DECL_MAX];
+        int saida[DECL_MAX], antes[DECL_MAX], q;
+        for (q = 0; q < nOrdem; q++) chaves[q] = decls[ordem[q]].chave;
+        memcpy(antes, ordem, sizeof(int) * (size_t)nOrdem);
+        q = fil_unir(chaves, nOrdem, saida, DECL_MAX);
+        for (j = 0; j < q; j++) ordem[j] = antes[saida[j]];
+        nOrdem = q;
+      }
+
+      // customTitles ganha do nome do manifesto. Aplicado a TODOS os
+      // candidatos, e nao so aos que forem pedidos: e este titulo que a tela de
+      // Ajustes mostra, e mostrar la o nome cru do manifesto enquanto a home
+      // mostra o renomeado seria a mesma fileira com dois nomes.
+      for (k = 0; k < nOrdem; k++) {
         Decl *d = &decls[ordem[k]];
         int t;
-        if (desligada(d)) continue;
-        // customTitles ganha do nome do manifesto.
         for (t = 0; t < nPrefTit; t++)
           if (!strcmp(prefTit[t].chave, d->chave)) {
             snprintf(d->titulo, sizeof d->titulo, "%s", prefTit[t].titulo);
             break;
           }
-        if (tarefas) tarefas[nTarefas++].d = d;
       }
+      // REGISTRA TODOS OS CANDIDATOS, inclusive os desligados e os que ficam
+      // abaixo do limite. E o que deixa a tela de Ajustes PROMOVER um catalogo
+      // que hoje nao entra: se ela listasse apenas as fileiras pedidas, o limite
+      // viraria uma jaula e nada de fora dele poderia ser escolhido. O teto do
+      // registro e o FIL_MAX de fileiras.h, nao o das fileiras desenhadas.
+      for (k = 0; k < nOrdem && k < FIL_MAX; k++)
+        fil_registrar(decls[ordem[k]].chave, decls[ordem[k]].titulo);
+      fil_gravar_registro();
 
-      // ETAPA 2 — CAT_FIOS trabalhando na fila. Se o calloc falhar ou nao
-      // houver o que ler, nTarefas fica 0 e o laco de montagem abaixo nao roda:
-      // a home segue com o que ja foi publicado, sem caminho de erro proprio.
-      { pthread_t fios[CAT_FIOS];
-        int criados = 0, q;
-        for (q = 0; q < CAT_FIOS && nTarefas > 0; q++)
-          if (pthread_create(&fios[criados], NULL, fioCatalogo, NULL) == 0) criados++;
-        // Sem NENHUM fio (pthread_create falhou em todos), le em serie no
-        // proprio fio: pior desempenho, mesmo resultado. Melhor que home vazia.
-        if (!criados && nTarefas > 0) fioCatalogo(NULL);
+      // TETO DE FILEIRAS: o numero escolhido em Ajustes (7 de fabrica),
+      // limitado pelo CAT_FIL_MAX do vetor. Ele corta o que vai ser PEDIDO pela
+      // rede, e nao o desenho: sete fileiras tem de custar sete GET, senao o
+      // ajuste economiza pixel e nao trabalho. `nFil` ja conta "Continuar
+      // assistindo" e "Amigos assistindo" — sao fileiras na tela como as outras.
+      int teto = fil_limite();
+      if (teto > CAT_FIL_MAX) teto = CAT_FIL_MAX;
 
-        // ETAPA 3 — montar NA ORDEM, publicando cada fileira assim que o balde
-        // dela fica pronto. Esperar o balde k nao desperdica tempo: os fios
-        // seguem enchendo k+1, k+2 enquanto este e consumido.
-        for (k = 0; k < nTarefas && nFil < CAT_FIL_MAX; k++) {
-          const Decl *d = tarefas[k].d;
-          int got;
-          for (;;) {
-            int pr;
-            pthread_mutex_lock(&catTrava);
-            pr = tarefas[k].pronto;
-            pthread_mutex_unlock(&catTrava);
-            if (pr) break;
-            SDL_Delay(10);
+      int marcouPrimeira = 0;
+      // Instrumentacao do arranque. Antes dava para ver o TOTAL de fileiras e
+      // nada mais: catalogo que nao respondeu, catalogo vazio e catalogo
+      // declarado duas vezes saiam todos como "uma fileira a menos", sem uma
+      // linha dizendo qual dos tres foi.
+      int pedidos = 0, responderam = 0, vazios = 0, duplicados = 0;
+      int cursor = 0, rodadas = 0;
+      tarefas = calloc(CAT_FIL_MAX, sizeof(TarefaCat));
+
+      // EM RODADAS, e nao num lote so. Com um lote de exatamente `teto`
+      // pedidos, cada catalogo que responde VAZIO custa uma fileira a menos na
+      // tela: o dono escolheria 7 e veria 5, sem nada dizendo por que. A rodada
+      // seguinte pede exatamente o que faltou. O caso comum — todos respondendo
+      // — continua sendo UMA rodada, com o mesmo custo de antes.
+      while (tarefas && nFil < teto && cursor < nOrdem) {
+        int alvo = teto - nFil;
+        rodadas++;
+        // ETAPA 1 — escolher as fileiras DESTA rodada. Os filtros (desligada,
+        // repetida) sao locais e baratos; fazer isto antes deixa os fios so com
+        // a parte cara, que e a rede.
+        nTarefas = 0; proximaTarefa = 0;
+        memset(tarefas, 0, sizeof(TarefaCat) * CAT_FIL_MAX);
+        for (; cursor < nOrdem && nTarefas < alvo; cursor++) {
+          Decl *d = &decls[ordem[cursor]];
+          int t, repetida = 0;
+          if (desligada(d)) continue;
+          // MESMA CHAVE DUAS VEZES = MESMA FILEIRA DUAS VEZES. Acontece quando
+          // o mesmo addon entra duas vezes na lista (`addons.txt` mais a conta)
+          // ou quando um manifesto declara o catalogo repetido: a chave e
+          // <addonId>_<tipo>_<catalogoId> e fica identica, e a home mostrava a
+          // fileira em duplicata com os MESMOS titulos. Dois addons DIFERENTES
+          // declarando o mesmo id nao caem aqui de proposito — sao catalogos
+          // distintos, com conteudo possivelmente distinto.
+          for (t = 0; t < nFil; t++)
+            if (!strcmp(fil[t].chave, d->chave)) { repetida = 1; break; }
+          for (t = 0; !repetida && t < nTarefas; t++)
+            if (!strcmp(tarefas[t].d->chave, d->chave)) { repetida = 1; break; }
+          if (repetida) { duplicados++; continue; }
+          tarefas[nTarefas++].d = d;
+        }
+        if (!nTarefas) break;
+        pedidos += nTarefas;
+
+        // ETAPA 2 — CAT_FIOS trabalhando na fila. Se o calloc falhar ou nao
+        // houver o que ler, nTarefas fica 0 e o laco de montagem abaixo nao roda:
+        // a home segue com o que ja foi publicado, sem caminho de erro proprio.
+        { pthread_t fios[CAT_FIOS];
+          int criados = 0, q;
+          for (q = 0; q < CAT_FIOS && nTarefas > 0; q++)
+            if (pthread_create(&fios[criados], NULL, fioCatalogo, NULL) == 0) criados++;
+          // Sem NENHUM fio (pthread_create falhou em todos), le em serie no
+          // proprio fio: pior desempenho, mesmo resultado. Melhor que home vazia.
+          if (!criados && nTarefas > 0) fioCatalogo(NULL);
+
+          // ETAPA 3 — montar NA ORDEM, publicando cada fileira assim que o balde
+          // dela fica pronto. Esperar o balde k nao desperdica tempo: os fios
+          // seguem enchendo k+1, k+2 enquanto este e consumido.
+          for (k = 0; k < nTarefas && nFil < teto; k++) {
+            const Decl *d = tarefas[k].d;
+            int got;
+            for (;;) {
+              int pr;
+              pthread_mutex_lock(&catTrava);
+              pr = tarefas[k].pronto;
+              pthread_mutex_unlock(&catTrava);
+              if (pr) break;
+              SDL_Delay(10);
+            }
+            got = tarefas[k].n;
+            if (tarefas[k].respondeu) responderam++;
+            if (tarefas[k].respondeu && !got) {
+              // Respondeu SEM `metas`: o catalogo existe e esta vazio hoje. Nao e
+              // erro e nao pode virar titulo pendurado na home — a rodada seguinte
+              // pede outro no lugar dele.
+              vazios++;
+              printf("[desc] catalogo vazio: %s\n", d->titulo);
+              continue;
+            }
+            if (!got) continue;   // sem resposta em 8 s; ja contado acima
+            GARANTE(MAX_POR_FILEIRA + 2);
+            if (got > cap - n) got = cap - n;
+            if (got <= 0) continue;
+            memcpy(lote + n, tarefas[k].itens, sizeof(CatItem) * (size_t)got);
+          {
+            CatFileira *f = &fil[nFil++];
+            memset(f, 0, sizeof *f);
+            snprintf(f->chave,  sizeof f->chave,  "%s", d->chave);
+            snprintf(f->titulo, sizeof f->titulo, "%s", d->titulo);
+            snprintf(f->tipo,   sizeof f->tipo,   "%s", d->tipo);
+            snprintf(f->base,   sizeof f->base,   "%s", d->base ? d->base : "");
+            snprintf(f->catId,  sizeof f->catId,  "%s", d->id);
+            f->ini = n; f->n = got;
           }
-          got = tarefas[k].n;
-          if (!got) continue;   // fileira vazia nao vira titulo pendurado
-          GARANTE(MAX_POR_FILEIRA + 2);
-          if (got > cap - n) got = cap - n;
-          if (got <= 0) continue;
-          memcpy(lote + n, tarefas[k].itens, sizeof(CatItem) * (size_t)got);
-        {
-          CatFileira *f = &fil[nFil++];
-          memset(f, 0, sizeof *f);
-          snprintf(f->chave,  sizeof f->chave,  "%s", d->chave);
-          snprintf(f->titulo, sizeof f->titulo, "%s", d->titulo);
-          snprintf(f->tipo,   sizeof f->tipo,   "%s", d->tipo);
-          snprintf(f->base,   sizeof f->base,   "%s", d->base ? d->base : "");
-          snprintf(f->catId,  sizeof f->catId,  "%s", d->id);
-          f->ini = n; f->n = got;
+          n += got;
+          printf("[desc] fileira %d: %s (%d)\n", nFil - 1, d->titulo, got);
+          // PUBLICA A CADA FILEIRA, em vez de so no fim.
+          //
+          // Medido no Mac: o catalogo da rede so aparecia aos 12.991 ms, e ate
+          // la a home mostrava apenas o catalogo estatico do pacote. Na TV e
+          // pior. A referencia mostra conteudo em 1,7 s — nao porque a rede dela
+          // seja mais rapida, mas porque ela mostra o que ja tem.
+          //
+          // cat_definir_tudo troca o bloco inteiro de uma vez (catalogo.c), entao
+          // publicar N vezes e seguro para quem esta desenhando; o custo e uma
+          // copia do vetor por fileira, que acontece no fio da descoberta e nao
+          // no de desenho.
+          nFileirasMontadas = nFil;
+          memcpy(filsMontadas, fil, sizeof(CatFileira) * (size_t)nFil);
+          // So publica em partes se a tela estiver com o catalogo do PACOTE.
+          // Sobre o cache seria um retrocesso visivel: 16 fileiras viram 1.
+          if (!cat_do_cache())
+            cat_definir_tudo(lote, n, filsMontadas, nFileirasMontadas);
+          // Bandeira propria: `nFil == 1` nunca acontece aqui porque a fileira
+          // "Continuar assistindo" ja ocupou a posicao 0 antes do laco.
+          if (!marcouPrimeira) { marcouPrimeira = 1;
+                                 marco("primeira fileira da rede na tela"); }
+          }
+          for (q = 0; q < criados; q++) pthread_join(fios[q], NULL);
         }
-        n += got;
-        printf("[desc] fileira %d: %s (%d)\n", nFil - 1, d->titulo, got);
-        // PUBLICA A CADA FILEIRA, em vez de so no fim.
-        //
-        // Medido no Mac: o catalogo da rede so aparecia aos 12.991 ms, e ate
-        // la a home mostrava apenas o catalogo estatico do pacote. Na TV e
-        // pior. A referencia mostra conteudo em 1,7 s — nao porque a rede dela
-        // seja mais rapida, mas porque ela mostra o que ja tem.
-        //
-        // cat_definir_tudo troca o bloco inteiro de uma vez (catalogo.c), entao
-        // publicar N vezes e seguro para quem esta desenhando; o custo e uma
-        // copia do vetor por fileira, que acontece no fio da descoberta e nao
-        // no de desenho.
-        nFileirasMontadas = nFil;
-        memcpy(filsMontadas, fil, sizeof(CatFileira) * (size_t)nFil);
-        // So publica em partes se a tela estiver com o catalogo do PACOTE.
-        // Sobre o cache seria um retrocesso visivel: 16 fileiras viram 1.
-        if (!cat_do_cache())
-          cat_definir_tudo(lote, n, filsMontadas, nFileirasMontadas);
-        // Bandeira propria: `nFil == 1` nunca acontece aqui porque a fileira
-        // "Continuar assistindo" ja ocupou a posicao 0 antes do laco.
-        if (!marcouPrimeira) { marcouPrimeira = 1;
-                               marco("primeira fileira da rede na tela"); }
-        }
-        for (q = 0; q < criados; q++) pthread_join(fios[q], NULL);
-      }
+      }   /* fim da rodada */
       free(tarefas); tarefas = NULL; nTarefas = 0;
       nFileirasMontadas = nFil;
       memcpy(filsMontadas, fil, sizeof(CatFileira) * (size_t)nFil);
+      // UMA LINHA QUE RESPONDE "o que falhou no arranque". As quatro contagens
+      // sao as quatro respostas possiveis de um catalogo, e sem separa-las o
+      // unico numero disponivel era o total de fileiras — que fica igual quer o
+      // addon esteja fora do ar, quer o catalogo esteja vazio.
+      printf("[desc] catalogos: %d pedido(s) em %d rodada(s), %d responderam, "
+             "%d sem resposta, %d vazio(s), %d repetido(s); %d de %d fileira(s) "
+             "no limite\n",
+             pedidos, rodadas, responderam, pedidos - responderam, vazios,
+             duplicados, nFil, teto);
+      if (nFil < teto)
+        printf("[desc] o limite de %d fileiras nao foi preenchido: acabaram os "
+               "catalogos disponiveis (%d declarados, %d na ordem)\n",
+               teto, nDecl, nOrdem);
+      fflush(stdout);
     }
   }
 
@@ -1172,7 +1486,15 @@ static void *montar(void *u) {
   // Um pedido que chegou COM o ciclo no ar roda agora, com as credenciais que
   // entraram no meio do caminho. Zerar a marca antes de disparar evita que uma
   // falha de pthread_create deixe o pedido preso para sempre.
-  if (repetirAoFim) { repetirAoFim = 0; desc_iniciar(); }
+  if (repetirAoFim) {
+    repetirAoFim = 0;
+    // PEDIDO JA ATENDIDO: nenhum outro chegou depois de esta volta ler a lista
+    // de addons, entao repetir daria o mesmo resultado. Ver geracaoPedida.
+    if (geracaoLida == geracaoPedida)
+      printf("[desc] remontagem dispensada: a lista nova entrou nesta volta\n");
+    else
+      desc_iniciar();
+  }
   return NULL;
 }
 
@@ -1198,6 +1520,7 @@ void desc_iniciar(void) {
 // fileiras do Trakt so aparecem no proximo arranque. Foi o relato "ativa o
 // trakt e nao atualiza".
 void desc_repetir(void) {
+  geracaoPedida++;
   if (!buscando) { desc_iniciar(); return; }
   repetirAoFim = 1;
   printf("[desc] remontagem pedida; roda ao fim do ciclo atual\n");

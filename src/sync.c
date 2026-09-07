@@ -36,6 +36,11 @@ static int sujoProgresso, sujoAddons;
 // de addons no meio de um quadro que ja estava lendo dela.
 static AddonRemoto addonsRem[SY_ADD_MAX];
 static int nAddonsRem, temAddonsRem;
+// Addons prontos ANTES do fim do ciclo. Ver a publicacao antecipada em
+// sync_passo. `volatile` porque quem escreve e o fio de sync e quem le e o fio
+// principal, e a barreira aqui e a mesma que `fioPronto` sempre foi: o valor so
+// e ligado DEPOIS de o buffer estar cheio.
+static volatile int addonsCedo;
 
 static char traktTok[300];
 static int  temTraktRem;
@@ -371,6 +376,27 @@ static void *rodar(void *u) {
   (void)u;
   perfis_puxar();
   puxarAddons();
+  // OS ADDONS SAO A SEGUNDA RPC DO CICLO, E ERAM APLICADOS NA ULTIMA LINHA DELE.
+  //
+  // MEDIDO NA C9, no arranque com conta: os addons da conta chegam em ~2 s e
+  // eram aplicados em t=28 s, porque sync_passo so olha o buffer quando
+  // `fioPronto` — e `fioPronto` e o fim de rodar(), depois de puxarSoLeitura(),
+  // que faz sete RPCs. O efeito nao era atraso, era TRABALHO REFEITO: a
+  // descoberta comecava em t=0,8 s com os addons LOCAIS, gastava 24 s (14 s de
+  // Trakt em serie + 7 s de manifestos) para publicar a home, e ai o
+  // `remontar` deste ciclo jogava tudo fora e refazia com os 7 addons da conta,
+  // terminando em t=40 s. Duas voltas completas, e a primeira nao servia para
+  // nada — num pacote distribuido ela nem tem addon local para usar.
+  //
+  // Publicando aqui, o remontar acontece com ~1,5 s de trabalho jogado fora em
+  // vez de 27 s.
+  //
+  // SO QUANDO NAO HA MUDANCA LOCAL PENDENTE. Com `sujoAddons`, a ordem antiga e
+  // que esta certa: `empurrarAddons` (abaixo) manda a lista DESTA TV, com o
+  // addon que a pessoa acabou de ligar, e so depois a lista da conta e
+  // aplicada. Antecipar ali sobrescreveria a escolha antes de ela ser enviada,
+  // e a pessoa veria o proprio toque desaparecer.
+  if (temAddonsRem && !sujoAddons) addonsCedo = 1;
   puxarCredenciais();
   syncprog_puxar();
   puxarSoLeitura();
@@ -420,6 +446,17 @@ int sync_periodico(unsigned agoraMs) {
 }
 
 void sync_passo(unsigned agoraMs) {
+  // ANTES DA PORTEIRA de `fioPronto`: ver o comentario em rodar(). O resto do
+  // ciclo continua sendo aplicado de uma vez, no fim — so os addons saem na
+  // frente, porque so eles mudam O QUE a descoberta vai buscar.
+  if (addonsCedo) {
+    addonsCedo = 0;
+    if (temAddonsRem) {
+      addons_definir_lista(addonsRem, nAddonsRem);
+      temAddonsRem = 0;
+      desc_repetir();
+    }
+  }
   if (!fioVivo || !fioPronto) return;
   fioVivo = 0;
   fioPronto = 0;
@@ -525,7 +562,7 @@ void sync_esquecer_usuario(void) {
   // As caixas que o fio preenche tambem: um ciclo que terminou logo antes do
   // logout aplicaria os addons da conta anterior no proximo sync_passo.
   memset(addonsRem, 0, sizeof addonsRem);
-  nAddonsRem = 0; temAddonsRem = 0;
+  nAddonsRem = 0; temAddonsRem = 0; addonsCedo = 0;
   traktTok[0] = 0; temTraktRem = 0;
   memset(tmdbKey, 0, sizeof tmdbKey); temTmdb = 0;
   memset(mdbKey, 0, sizeof mdbKey);   temMdb = 0;

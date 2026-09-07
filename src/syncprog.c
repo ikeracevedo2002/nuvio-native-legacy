@@ -21,28 +21,6 @@ static int nCaixa;
 
 static int ok2xx(const char *r, int st) { return r && st >= 200 && st < 300; }
 
-// "2026-09-04T18:52:07.123456+00:00" | "...Z" | "2026-09-04 18:52:07" -> ms.
-// So UTC: e o que o Postgres devolve nesta API. Sem fuso local — o aparelho
-// pode estar com relogio certo e fuso errado, e o que importa e comparar com
-// last_watched, que ja e ms desde a epoca.
-static long long isoParaMs(const char *s) {
-  struct tm tm;
-  int ano, mes, dia, h = 0, m = 0, seg = 0, frac = 0, n;
-  char sep;
-  time_t t;
-  if (!s || !*s) return 0;
-  n = sscanf(s, "%d-%d-%d%c%d:%d:%d", &ano, &mes, &dia, &sep, &h, &m, &seg);
-  if (n < 3) return 0;
-  memset(&tm, 0, sizeof tm);
-  tm.tm_year = ano - 1900; tm.tm_mon = mes - 1; tm.tm_mday = dia;
-  tm.tm_hour = h; tm.tm_min = m; tm.tm_sec = seg;
-  t = timegm(&tm);
-  if (t < 0) return 0;
-  { const char *p = strchr(s, '.');
-    if (p) { int k = 0; p++; while (*p >= '0' && *p <= '9' && k < 3) { frac = frac * 10 + (*p - '0'); p++; k++; }
-             while (k < 3) { frac *= 10; k++; } } }
-  return (long long)t * 1000 + frac;
-}
 
 // updated_at ganha de last_watched, como em rowFreshness do web. Numero pode
 // vir em segundos ou em ms (mapProgressRow trata os dois); texto e ISO.
@@ -55,7 +33,7 @@ static long long lerInstanteMs(const char *p, const char *f) {
     // Texto primeiro: js_num aceita valor entre aspas e leria "2026-09-04T..."
     // como 2026. Uma data ISO tem '-' ou 'T'; numero entre aspas nao.
     if (js_texto(p, f, chaves[i], txt, sizeof txt) && txt[0]) {
-      if (strchr(txt, '-') || strchr(txt, 'T')) { long long ms = isoParaMs(txt); if (ms > 0) return ms; continue; }
+      if (strchr(txt, '-') || strchr(txt, 'T')) { long long ms = js_ms_iso(txt); if (ms > 0) return ms; continue; }
       v = strtod(txt, NULL);
     } else {
       v = js_num(p, f, chaves[i], -1.0);

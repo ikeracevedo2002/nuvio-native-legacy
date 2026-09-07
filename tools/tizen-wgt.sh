@@ -40,8 +40,10 @@ cp "$ENTRADA"/index.html "$ENTRADA"/index.js "$ENTRADA"/index.wasm "$ESTAGIO"/
 cp tools/tizen-config.xml "$ESTAGIO"/config.xml
 # ICONE OFICIAL DO SAMSUNG, e nao o deploy/app/icon.png do LG.
 #
-# O do LG tem 80x80 e 211 bytes — um marcador, que na grade de apps da Samsung
-# aparece minusculo e borrado. deploy/app/tizen/icon.png e o
+# O do LG e 80x80, que e o tamanho que o webOS pede e que na grade de apps da
+# Samsung apareceria interpolado para cima. (Ele era um marcador chapado de 211
+# bytes ate a versao 1.0.7, quando virou a marca de verdade — mas o tamanho
+# continua sendo o do outro alvo.) deploy/app/tizen/icon.png e o
 # store-assets/samsung/icon-512x423.png do app web, que e a arte oficial no
 # tamanho que a Samsung especifica para a grade (512 de largura).
 if [ -f deploy/app/tizen/icon.png ]; then

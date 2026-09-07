@@ -109,6 +109,21 @@
 
     var painel = document.getElementById("diag");
     var linhas = [];
+    // A MESMA lista, em TEXTO PURO e sem o relogio formatado em HTML. Ela existe
+    // para o painel de log EM C (src/registro.c) poder ler daqui: no webOS esse
+    // painel le o fim de /tmp/nuvio.log, e aqui nao ha arquivo nenhum — o printf
+    // do app chega em Module.print, passa por `mostrar` e morreria dentro deste
+    // fechamento. Uma unica captura alimentando as duas formas de mostrar; um
+    // segundo mecanismo de coleta daria dois logs que discordam.
+    var nvLinhas = [];
+    window.__nvLinhas = nvLinhas;
+    function pintar() {
+      if (painel && !painel.hidden) painel.innerHTML = linhas.join("\n");
+    }
+    // Exposto porque quem mostra o painel de novo (o ouvinte da tecla, la
+    // embaixo) esta fora deste fechamento e precisa repintar o que chegou
+    // enquanto ele estava escondido.
+    window.__nvPintar = pintar;
     // RELOGIO EM CADA LINHA. Sem ele, duas fotos do painel em pontos
     // diferentes nao distinguem "travou" de "esta andando devagar" — e foi
     // exatamente essa duvida que custou uma ida a TV: a primeira foto parava
@@ -119,11 +134,21 @@
       var ms = Date.now() - t0;
       if (window.__nvEnviar) window.__nvEnviar((ms / 1000).toFixed(1) + "s " + txt);
       txt = (ms / 1000).toFixed(1).padStart(6) + "s  " + txt;
+      // A copia em texto puro guarda MAIS que as 34 do painel DOM: o painel em C
+      // rola, entao la o historico serve para algo. 200 e o tamanho do anel do
+      // outro lado (REG_MAX em src/registro.c) — guardar mais aqui seria memoria
+      // que ninguem le.
+      nvLinhas.push(txt);
+      if (nvLinhas.length > 200) nvLinhas.splice(0, nvLinhas.length - 200);
       linhas.push(erro ? '<span class="e">' + txt + "</span>" : txt);
       // So as ultimas 34 linhas: a tela da TV nao tem mais que isso e o que
       // importa e o FIM, onde o arranque parou.
       if (linhas.length > 34) linhas = linhas.slice(-34);
-      if (painel) painel.innerHTML = linhas.join("\n");
+      // SO PINTA QUANDO ESTA VISIVEL. A versao anterior reescrevia o innerHTML a
+      // CADA linha de log, inclusive depois de o painel ficar escondido no
+      // primeiro quadro — ou seja, um reflow do DOM por printf, para sempre, sem
+      // ninguem olhando. O app fala centenas de linhas por minuto.
+      pintar();
     }
     window.__nvDiag = mostrar;
     function d(k, v) { console.log("[NV-DIAG] " + k + " = " + v); mostrar(k + " = " + v); }
@@ -182,6 +207,10 @@
         if (t.indexOf("primeiro quadro na tela") >= 0) {
           var p = document.getElementById("diag");
           if (p) p.hidden = true;
+          // A PARTIR DAQUI A TECLA VERMELHA E DO APP, e nao mais deste painel.
+          // Ver a nota longa no ouvinte dela: com o C desenhando, o painel que o
+          // dono quer e o de dentro do app — o mesmo que existe na TV da LG.
+          window.__nvPrimeiroQuadro = 1;
         }
       }
     },
@@ -262,18 +291,53 @@
     });
   }, true);
 
-  // TECLA VERMELHA = mostra/esconde o painel de diagnostico. Ela ja e
-  // registrada acima (ColorF0Red) e o app nao a usa para mais nada. Num
-  // aparelho sem DevTools a mao, e o unico jeito de ler o log depois que a
-  // interface subiu — e foi a falta disso que cegou a investigacao quando o app
-  // passou a travar na tela de login em vez de no arranque.
+  // DOIS PAINEIS DE LOG, UMA TECLA VERMELHA — e por isso ela troca de dono.
+  //
+  // Agora existe um painel de log EM C (src/registro.c), que o dono abre com a
+  // vermelha nas DUAS TVs: no webOS nao ha shell nenhum e um painel em DOM la e
+  // impossivel. Mas o painel DOM daqui nao pode simplesmente sair: ele sobrevive
+  // a coisas que o painel em C nao sobrevive, porque nao depende do laco de
+  // quadro — tela preta antes do primeiro quadro, contexto WebGL recusado,
+  // abort() do runtime. Foi para esses casos que ele nasceu.
+  //
+  // A regra, entao, e por ESTADO e nao por preferencia:
+  //   antes do primeiro quadro  -> a vermelha e do painel DOM (o C nao desenha)
+  //   depois do primeiro quadro -> a vermelha vai para o app
+  //   a qualquer momento        -> a VERDE traz o painel DOM de volta
+  // A verde ja e registrada acima (ColorF1Green) e o app nao a usa. Ela e a
+  // saida para "o C parou de desenhar depois de ter desenhado": ai a vermelha
+  // vai para um app que nao pinta mais nada, e sem a verde nao haveria mais como
+  // ler nada. (Com o FIO PRINCIPAL bloqueado nenhuma das duas responde — o
+  // ouvinte tambem e JS no fio principal. Isso continua sem solucao aqui e esta
+  // descrito no medidor de workers, acima.)
+  //
+  // O 403 NAO E REPASSADO ao SDL: o keyCode das coloridas da Samsung nao existe
+  // na tabela do SDL e o evento morreria no navegador, exatamente como o 10009
+  // do Return. Vira um F9 sintetico, que e a tecla que registro.c escuta nos
+  // tres alvos.
+  function mostrarPainelDOM() {
+    var p = document.getElementById("diag");
+    if (!p) return;
+    p.hidden = !p.hidden;
+    if (!p.hidden && window.__nvPintar) window.__nvPintar();
+  }
   window.addEventListener("keydown", function (ev) {
-    // 403 = ColorF0Red no controle Samsung; F1 serve para testar no desktop.
-    if (ev.keyCode === 403 || ev.key === "F1") {
-      var p = document.getElementById("diag");
-      if (p) p.hidden = !p.hidden;
-      ev.preventDefault();
-    }
+    // 403 = ColorF0Red, 404 = ColorF1Green. F1/F2 servem para testar no desktop.
+    var vermelha = (ev.keyCode === 403 || ev.key === "F1");
+    var verde    = (ev.keyCode === 404 || ev.key === "F2");
+    if (!vermelha && !verde) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (verde || !window.__nvPrimeiroQuadro) { mostrarPainelDOM(); return; }
+    // O par keydown+keyup completo: mandar so o keydown deixa a tecla presa
+    // para o SDL, e registro.c usa o keyup para nao vazar o toque adiante.
+    var alvo = document.getElementById("canvas") || window;
+    ["keydown", "keyup"].forEach(function (t) {
+      alvo.dispatchEvent(new KeyboardEvent(t, {
+        key: "F9", code: "F9", keyCode: 120, which: 120,
+        bubbles: true, cancelable: true
+      }));
+    });
   }, true);
 
   // O SDL le o teclado do elemento com foco. Sem isto o app abre e nao responde

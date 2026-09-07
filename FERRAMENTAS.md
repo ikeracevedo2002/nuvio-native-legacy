@@ -124,7 +124,9 @@ bash /tmp/shot.sh 6          # build + deploy + captura + baixa + converte
 ## 3. Injeção de teclas
 
 Permite abrir o detalhe e navegar sem ninguém no sofá com o controle.
-Escreva teclas (`up`,`down`,`left`,`right`,`ok`,`back`) em `/tmp/nuvio-key`.
+Escreva teclas (`up`,`down`,`left`,`right`,`ok`,`back`,`log`) em `/tmp/nuvio-key`.
+`log` abre e fecha o painel de registro na tela — o mesmo que a tecla vermelha
+faz no controle, e o único jeito de exercitá-lo no Mac.
 
 ```bash
 bash /tmp/grab.sh nome_do_arquivo down down
@@ -143,12 +145,24 @@ dar `chmod 666` para que o app possa truncar.
 
 ## Tecla Back
 
-O Back do controle **não chega ao app como tecla**. Medido logando todos os
-eventos SDL: setas e Enter chegam; o Back produz apenas
-`FOCUS_LOST` → `FOCUS_GAINED` em poucos milissegundos — o compositor engole a
-tecla, tira o foco para tentar fechar o app e devolve. `main.c` trata esse par
-dentro de 600 ms como Back. Sair de verdade (tecla Home) produz `FOCUS_LOST`
-sem retorno, e é isso que separa os dois casos.
+**Resolvido, e esta seção estava desatualizada** — o parágrafo abaixo descrevia
+uma solução que já não existe no código, e quem fosse depurar o Back por ela ia
+procurar no lugar errado.
 
-Não há documentação pública sobre entregar o Back a um app nativo no webOS. Se
-aparecer caminho melhor (luna-service2, `webos_shell_surface`), trocar.
+Hoje o Back **chega como tecla**: `main.c:306` pede
+`SDL_SetHint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true")` antes de criar a
+janela, e a tecla aparece com o **scancode 482**
+(`SDL_WEBOS_SCANCODE_BACK`, em `NV_SCANCODE_BACK`). `main.c` a traduz para
+`SDLK_AC_BACK`, que é o que todas as telas já tratam. O mesmo cabeçalho do SDK
+traz as coloridas: **RED 486, GREEN 487, YELLOW 488, BLUE 489** — lidas do
+`SDL_webOS.h` do sysroot, não adivinhadas. Não existe hint equivalente para as
+coloridas (só `..._KEYS_BACK` e `..._KEYS_EXIT`), então se a tecla vermelha não
+abrir o painel de registro na TV, é aí que se olha primeiro — e não no número.
+
+**Como era antes**, e por que a mudança importa: sem o hint, o Back não produzia
+tecla nenhuma. Medido logando todos os eventos SDL: setas e Enter chegavam; o
+Back produzia apenas `FOCUS_LOST` → `FOCUS_GAINED` em poucos milissegundos — o
+compositor engolia a tecla, tirava o foco para tentar fechar o app e devolvia.
+`main.c` tratava esse par dentro de 600 ms como Back, e separava do "sair de
+verdade" (tecla Home) porque este produz `FOCUS_LOST` sem retorno. Aquele
+código não existe mais.
