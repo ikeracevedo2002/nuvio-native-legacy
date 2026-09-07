@@ -692,13 +692,31 @@ void player_encerrar(void) {
       sync_sujar_progresso();
     }
   }
-  if (comVideo) video_parar();
-  pausao_fechar();
+  // QUANTO CUSTA CADA PASSO DA SAIDA, e por que isto e uma medida e nao um
+  // conserto.
+  //
+  // O relato e "saio do filme e trava", no Tizen. Duas hipoteses cairam antes
+  // de virarem codigo: trakt_marcar ja roda em fio proprio e detached (nao
+  // bloqueia nada), e o progresso local so mexe em memoria e num arquivo curto.
+  // O que sobra no fio do desenho e o desmonte do AVPlay — p.stop() seguido de
+  // p.close(), sincronos, e `webapis.avplay` so existe no fio principal, entao
+  // nao ha para onde mover.
+  //
+  // Se esses milissegundos forem milhares, a resposta nao e "tirar do fio
+  // principal" (impossivel): e a tela DIZER que esta saindo em vez de parecer
+  // travada. Medir antes de escolher.
+  { Uint32 t0 = SDL_GetTicks(), tv;
+    if (comVideo) video_parar();
+    tv = SDL_GetTicks();
+    pausao_fechar();
+    episodios_fechar();
+    intro_desligar(); introIdx=introT=introE=-1;
+    legenda_desligar();
+    printf("[player] saida: video_parar %u ms, resto %u ms\n",
+           (unsigned)(tv - t0), (unsigned)(SDL_GetTicks() - tv));
+    fflush(stdout); }
   comVideo = 0; esperandoFonte = 0; aberto = 0; saindo = 0; pediuSair = 0;
   inicioImagem = 0;
-  episodios_fechar();
-  intro_desligar(); introIdx=introT=introE=-1;
-  legenda_desligar();
 }
 
 // O ultimo botao da fileira: "Episodios" numa serie, "Relacionados" num filme
