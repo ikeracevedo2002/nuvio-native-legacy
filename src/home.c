@@ -1236,7 +1236,7 @@ static void desenhaHero(Uint32 agora, float saida) {
                              x,NV_COLLECTION_HERO_LOGO_Y+136.0f,a);
         }
         char caption[96];
-        snprintf(caption, sizeof caption, "%d %s · OK para explorar",
+        snprintf(caption, sizeof caption, i18n("%d %s · OK para explorar"),
                  folder->nSources, i18n(folder->nSources == 1 ? "lista" : "listas"));
         txt_desenhar_alpha(txt_linha_corta(TXT_HERO_SIN, caption,
                                            205, 210, 221, 255, 780),

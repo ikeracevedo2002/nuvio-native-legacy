@@ -25,6 +25,7 @@
 //      esta pausado. Pausado sem controles o usuario fica olhando um quadro
 //      congelado sem saber o que houve.
 #include "player.h"
+#include "idioma.h"
 #include "posplay.h"
 #include "extras.h"
 #include "video.h"
@@ -233,13 +234,15 @@ void player_definir_episodio(int t, int e) {
   if (!c || strcmp(c->tipo, "series")) { epT = epE = 0; intro_desligar(); return; }
   if (epT < 1) epT = c->temporada > 0 ? c->temporada : 1;
   if (epE < 1) epE = c->episodio > 0 ? c->episodio : 1;
-  snprintf(linhaEp, sizeof linhaEp, "T%dE%d", epT, epE);
+  // T/E vira S/E em ingles, e a frase montada nao casa com chave nenhuma:
+  // i18n vai no FORMATO. Ver idioma.h e o issue #12.
+  snprintf(linhaEp, sizeof linhaEp, i18n("T%dE%d"), epT, epE);
   if (epT == c->temporada && epE == c->episodio && c->nomeEpisodio[0])
-    snprintf(linhaEp, sizeof linhaEp, "T%dE%d · %s", epT, epE, c->nomeEpisodio);
+    snprintf(linhaEp, sizeof linhaEp, i18n("T%dE%d · %s"), epT, epE, c->nomeEpisodio);
   for (int i = 0; i < cat_n_episodios(idx); i++) {
     const CatEp *ep = cat_episodio(idx, i);
     if (ep && ep->temporada == epT && ep->episodio == epE) {
-      snprintf(linhaEp, sizeof linhaEp, "T%dE%d · %s", epT, epE, ep->nome);
+      snprintf(linhaEp, sizeof linhaEp, i18n("T%dE%d · %s"), epT, epE, ep->nome);
       break;
     }
   }

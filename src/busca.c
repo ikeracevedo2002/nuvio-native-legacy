@@ -27,6 +27,7 @@
 // letras e ~13 toques e o pior caso passa de 37. A grade 6x7 poe a mesma tecla a
 // no maximo 5+6 toques e ~5 em media.
 #include "busca.h"
+#include "idioma.h"
 #include "gfx.h"
 #include "text.h"
 #include "tex_cache.h"
@@ -576,7 +577,7 @@ static void desenhaResultados(Uint32 agora) {
     txt_desenhar(tt, BU_RES_X, ry);
     if (fil[r].origem) {
       char org[96];
-      snprintf(org, sizeof org, "de %s", fil[r].origem);
+      snprintf(org, sizeof org, i18n("de %s"), fil[r].origem);
       TxtLinha ts = txt_linha_corta(TXT_CAPTION2, org, 179, 179, 179, 255,
                                    BU_DIR - BU_RES_X);
       txt_desenhar_alpha(ts, BU_RES_X, ry + NV_BUSCA_ROW_SUB, 0.95f);

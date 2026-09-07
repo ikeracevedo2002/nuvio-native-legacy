@@ -1,4 +1,5 @@
 #include "trakt.h"
+#include "idioma.h"
 #include "rede.h"
 #include "js.h"
 #include <stdio.h>
@@ -425,7 +426,11 @@ int trakt_social(CatItem *saida, int max) {
         d->temporada = (int)js_num(be, fe, "season", 0);
         d->episodio = (int)js_num(be, fe, "number", 0);
         js_texto(be, fe, "title", d->nomeEpisodio, sizeof d->nomeEpisodio);
-        snprintf(d->direcao, sizeof d->direcao, "T%dE%d%s%s", d->temporada,
+        // i18n aqui, num fio de trabalho: e seguro. A tabela e const e
+        // idioma_registrar sai na primeira linha quando NUVIO_TEXTO_DUMP nao
+        // esta ligado. O rotulo fica GUARDADO no item, entao trocar o idioma
+        // exige remontar — e ajustes.c ja chama desc_repetir() nessa troca.
+        snprintf(d->direcao, sizeof d->direcao, i18n("T%dE%d%s%s"), d->temporada,
                  d->episodio, d->nomeEpisodio[0] ? "  \xc2\xb7  " : "",
                  d->nomeEpisodio);
       }
@@ -552,7 +557,7 @@ int trakt_perfil(PerfilDados *d) {
       for(int i=0;i<nRanking;i++)if(imdb[0]&&!strcmp(ranking[i].id,imdb)){hi=i;break;}
       if(hi<0&&imdb[0]&&nRanking<100){hi=nRanking++;PerfilDestaque *h=&ranking[hi];
         snprintf(h->id,sizeof h->id,"%s",imdb);snprintf(h->titulo,sizeof h->titulo,"%s",titulo);
-        if(t>0&&e>0)snprintf(h->detalhe,sizeof h->detalhe,"T%dE%d",t,e);else snprintf(h->detalhe,sizeof h->detalhe,"Filme");
+        if(t>0&&e>0)snprintf(h->detalhe,sizeof h->detalhe,i18n("T%dE%d"),t,e);else snprintf(h->detalhe,sizeof h->detalhe,"Filme");
         if(imdb[0]){snprintf(h->poster,sizeof h->poster,"https://images.metahub.space/poster/medium/%s/img",imdb);
           snprintf(h->backdrop,sizeof h->backdrop,"https://images.metahub.space/background/medium/%s/img",imdb);}}
       if(hi>=0){ranking[hi].plays++;if(runtime>0)ranking[hi].minutos+=runtime;}

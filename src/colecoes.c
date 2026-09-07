@@ -117,6 +117,15 @@ static void tirarManifest(char *base) {
 // Uma colecao do web -> N pastas em `folders`. Mesma traducao de
 // tools/import-collections.mjs, sem baixar arte: cover/hero/logo ficam como URL
 // e tex_cache baixa quando desenhar.
+// POR QUE UMA PASTA SOME INTEIRA, contado em vez de silencioso.
+//
+// Uma pasta so entra com pelo menos UMA fonte utilizavel e um titulo. As
+// descartadas nao deixavam rastro nenhum: quem instalava uma colecao na conta e
+// nao a via na TV nao tinha como saber se ela nao chegou, se chegou vazia, ou se
+// foi recusada aqui — e os tres tem conserto diferente. E o issue #13.
+static int fPulProvedor, fPulSemFonte, fPulSemTitulo, fPulCheio;
+static char fPrimeiraPulada[128];
+
 static void lerColecaoWeb(const char *c, const char *ce) {
   char group[64], groupId[64], fundo[512];
   js_texto(c, ce, "title", group, sizeof group);
@@ -139,7 +148,8 @@ static void lerColecaoWeb(const char *c, const char *ce) {
       memset(a, 0, sizeof *a);
       js_texto(s, se, "provider", prov, sizeof prov);
       // tmdb/trakt como fonte de pasta nao tem equivalente aqui: so addon.
-      if (prov[0] && strcasecmp(prov, "addon")) continue;
+      // tmdb/trakt como fonte de pasta nao tem equivalente aqui: so addon.
+      if (prov[0] && strcasecmp(prov, "addon")) { fPulProvedor++; continue; }
       if (!js_texto(s, se, "addonBaseUrl", a->base, sizeof a->base)) js_texto(s, se, "addon_base_url", a->base, sizeof a->base);
       tirarManifest(a->base);
       js_texto(s, se, "addonId", a->addonId, sizeof a->addonId);
@@ -154,6 +164,11 @@ static void lerColecaoWeb(const char *c, const char *ce) {
       if ((a->base[0] || a->addonId[0]) && a->type[0] && a->catId[0]) v->nSources++;
     }
     if (v->nSources && v->title[0]) count++;
+    else {
+      if (!v->nSources) fPulSemFonte++; else fPulSemTitulo++;
+      if (!fPrimeiraPulada[0] && v->title[0])
+        snprintf(fPrimeiraPulada, sizeof fPrimeiraPulada, "%s", v->title);
+    }
   }
 }
 
@@ -189,8 +204,23 @@ int col_definir_json(const char *json) {
   ColFolder *antigas = malloc(sizeof(ColFolder) * (size_t)(antes > 0 ? antes : 1));
   if (antigas) memcpy(antigas, folders, sizeof(ColFolder) * (size_t)antes);
   count = 0;
-  for (const char *c = arr; c && *c == '{' && count < COL_MAX; c = js_prox(js_fim(c))) lerColecaoWeb(c, js_fim(c));
+  fPulProvedor = fPulSemFonte = fPulSemTitulo = fPulCheio = 0;
+  fPrimeiraPulada[0] = 0;
+  { const char *c = arr;
+    for (; c && *c == '{'; c = js_prox(js_fim(c))) {
+      if (count >= COL_MAX) { fPulCheio++; continue; }
+      lerColecaoWeb(c, js_fim(c));
+    } }
   novas = count;
+  // UMA LINHA QUE RESPONDE "cade a colecao que eu instalei". Cada contagem e um
+  // conserto diferente: provedor sem equivalente e falta de recurso, pasta sem
+  // fonte e dado incompleto do lado da conta, e teto cheio e limite nosso.
+  if (fPulProvedor || fPulSemFonte || fPulSemTitulo || fPulCheio)
+    printf("[colecoes] descartadas: %d fonte(s) de provedor nao-addon, "
+           "%d pasta(s) sem fonte utilizavel, %d sem titulo, %d alem do teto de "
+           "%d%s%s\n",
+           fPulProvedor, fPulSemFonte, fPulSemTitulo, fPulCheio, COL_MAX,
+           fPrimeiraPulada[0] ? " | primeira: " : "", fPrimeiraPulada);
   if (novas && antigas) {
     int casadas = 0;
     for (int i = 0; i < count; i++) for (int j = 0; j < antes; j++) {

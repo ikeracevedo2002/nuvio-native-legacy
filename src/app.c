@@ -700,7 +700,19 @@ void app_atualizar(float dt, Uint32 agora) {
       const CatItem *ci = cat_item(player_indice());
       if (ci && ci->imdb[0]) {
         char alvo[48];
-        snprintf(alvo, sizeof alvo, "%s:%d:%d", ci->imdb, t, e);
+        // CORTA NO ':' ANTES DE COMPOR, como os outros tres pontos que montam
+        // um id de episodio fazem (idDoAlvo e alvoPlayer aqui, e player.c).
+        //
+        // `ci->imdb` NEM SEMPRE e "tt123": um item que entrou pela fileira
+        // "Continuar assistindo" ja vem composto — trakt.c e continuarLocal
+        // gravam "tt123:1:2" no proprio campo. Sem o corte, o id pedido ao addon
+        // virava "tt123:1:2:1:3", que nao existe: a busca voltava vazia, nenhuma
+        // fonte era escolhida e o proximo episodio simplesmente nao comecava,
+        // com o painel ja fechado. E o issue #14, e ele so aparece quando a
+        // serie foi aberta por Continuar assistindo — que e justamente o caminho
+        // comum de quem esta maratonando.
+        snprintf(alvo, sizeof alvo, "%.*s:%d:%d",
+                 (int)strcspn(ci->imdb, ":"), ci->imdb, t, e);
         // O item passa a apontar para o episodio NOVO: e dele que sai o
         // rotulo do player e o alvo do proximo pos-reproducao. Antes era
         // cat_salvar_progresso_ep(..., 0.0, 0.0, t, e), que a guarda de

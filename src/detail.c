@@ -1606,8 +1606,12 @@ static void heroWeb(float a, float desloc) {
   char rot[48];
   { int t = 0, e = 0, de = 0;
     if (ehSerie() && episodioAlvo(&t, &e, &de) && t > 0 && e > 0 && de >= 2)
-      snprintf(rot, sizeof rot, "%s T%dE%d",
-               de == 2 ? "Retomar" : "Próximo", t, e);
+      // i18n NO FORMATO E NA PALAVRA. A frase montada nunca casa com uma chave
+      // (ver idioma.h), entao traduzir so no desenho deixava "Retomar T1E1" em
+      // portugues com a interface em ingles — o issue #12. O T/E tambem muda:
+      // em ingles a abreviacao e S/E.
+      snprintf(rot, sizeof rot, i18n("%s T%dE%d"),
+               i18n(de == 2 ? "Retomar" : "Próximo"), t, e);
     else if (ci && ci->progresso > 0) snprintf(rot, sizeof rot, "Retomar");
     else snprintf(rot, sizeof rot, "Reproduzir"); }
 

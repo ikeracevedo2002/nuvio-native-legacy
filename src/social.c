@@ -1,4 +1,5 @@
 #include "social.h"
+#include "idioma.h"
 #include "trakt.h"
 #include "rede.h"
 #include "js.h"
@@ -83,8 +84,8 @@ static int extrairAtividades(const char *corpo, SocialDados *d, const char *acao
     {const char *fo=js_fim(obj);js_texto(obj,fo,"title",a->titulo,sizeof a->titulo);js_texto(obj,fo,"imdb",imdb,sizeof imdb);}
     ep=strstr(p,"\"episode\"");
     if(ep&&ep<f){const char *eo=strchr(ep,'{'),*ef=eo?js_fim(eo):NULL;int t=eo?(int)js_num(eo,ef,"season",0):0,e=eo?(int)js_num(eo,ef,"number",0):0;char nome[100]="";
-      if(eo&&ef)js_texto(eo,ef,"title",nome,sizeof nome);snprintf(a->detalhe,sizeof a->detalhe,"T%dE%d%s%s",t,e,nome[0]?" · ":"",nome);
-    } else snprintf(a->detalhe,sizeof a->detalhe,"Filme");
+      if(eo&&ef)js_texto(eo,ef,"title",nome,sizeof nome);snprintf(a->detalhe,sizeof a->detalhe,i18n("T%dE%d%s%s"),t,e,nome[0]?" · ":"",nome);
+    } else snprintf(a->detalhe,sizeof a->detalhe,"Filme");   /* chave inteira: text.c traduz no desenho */
     if(!imdb[0]){p=js_prox(f);continue;} snprintf(a->imdb,sizeof a->imdb,"%s",imdb);
     snprintf(a->poster,sizeof a->poster,"https://images.metahub.space/poster/medium/%s/img",imdb); n++; p=js_prox(f);
   }

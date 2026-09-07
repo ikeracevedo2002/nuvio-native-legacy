@@ -279,7 +279,7 @@ void posplay_desenhar(Uint32 agora, float baseY) {
         gfx_rect(tr, t, GFX_CARD, 0, 0, 0, PP_EP_RAIO / tr.h, 0, 0, 0, a);
         gfx_tex_aspect_atual = 0.0f;
       } }
-    snprintf(num, sizeof num, "T%dE%d", proxT, proxE);
+    snprintf(num, sizeof num, i18n("T%dE%d"), proxT, proxE);
     { GfxRect selo = { tr.x + 10.0f, tr.y + tr.h - 44.0f, 96.0f, 34.0f };
       gfx_cor(selo, 0.2f, .025f, .025f, .03f, 0.92f * a);
       txt_desenhar_alpha(txt_linha(TXT_MINI, num, 240, 240, 242, 255),

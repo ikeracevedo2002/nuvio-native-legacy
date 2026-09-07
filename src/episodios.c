@@ -150,7 +150,7 @@ void episodios_desenhar(void) {
     GfxRect tr={x+54,y+14,184,130};
     gfx_cor(tr,.10f,.19f,.19f,.20f,anim);
     if(tex){gfx_tex_aspect_atual=tex_aspecto(arte);gfx_rect(tr,tex,GFX_CARD,0,0,0,.10f,0,0,0,anim);gfx_tex_aspect_atual=0;}
-    char num[40];snprintf(num,sizeof num,"T%dE%d",ep->temporada,ep->episodio);
+    char num[40];snprintf(num,sizeof num,i18n("T%dE%d"),ep->temporada,ep->episodio);
     gfx_cor((GfxRect){tr.x+8,tr.y+92,72,30},.15f,.025f,.025f,.03f,.9f*anim);
     txt_desenhar_alpha(txt_linha(TXT_MINI,num,240,240,242,255),tr.x+15,tr.y+97,anim);
     float tx=x+260, w=EP_W-310;

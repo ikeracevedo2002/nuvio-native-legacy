@@ -1,4 +1,5 @@
 #include "addons.h"
+#include "idioma.h"
 #include "linguas.h"
 #include "streams.h"
 #include "debrid.h"
@@ -386,7 +387,7 @@ static void *buscarLegendas(void *u) {
               if (!nome[0]) js_texto(q, f, "movieReleaseName", nome, sizeof nome);
               snprintf(d->idioma, sizeof d->idioma, "%s", l);
               if (temporada > 0 && episodio > 0)
-                snprintf(d->rotulo, sizeof d->rotulo, "T%dE%d  \xc2\xb7  %s%s%.22s",
+                snprintf(d->rotulo, sizeof d->rotulo, i18n("T%dE%d  \xc2\xb7  %s%s%.22s"),
                          temporada, episodio, ling_nome(l), nome[0] ? "  \xc2\xb7  " : "", nome);
               else
                 snprintf(d->rotulo, sizeof d->rotulo, "%s%s%.36s",

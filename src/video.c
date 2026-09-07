@@ -1,4 +1,5 @@
 #include "video.h"
+#include "idioma.h"
 #include "linguas.h"
 #include <SDL2/SDL.h>
 #include "marco.h"
@@ -629,7 +630,7 @@ static int aoEvento(LSHandle *h, LSMessage *m, void *u) {
         if (f->idioma[0])
           snprintf(f->rotulo, sizeof f->rotulo, "%s", ling_nome(f->idioma));
         else
-          snprintf(f->rotulo, sizeof f->rotulo, "Legenda %d", f->numero + 1);
+          snprintf(f->rotulo, sizeof f->rotulo, i18n("Legenda %d"), f->numero + 1);
         nLeg++;
         o = fo ? strchr(fo, '{') : NULL;
       }
