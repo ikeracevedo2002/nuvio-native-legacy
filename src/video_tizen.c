@@ -672,6 +672,11 @@ void video_bombear(void) {
   }
 }
 
+void video_render(void) {
+  // AVPlay compoe em uma superficie propria; nao ha framebuffer OpenGL para
+  // desenhar neste alvo.
+}
+
 void video_parar(void) {
   seekEm = 0; mkvPendente = 0;
   if (temAvplay) AV0("parar");

@@ -11,7 +11,10 @@ static FnInfo pInfo; static FnRgba pRgba; static FnFree pFree;
 static int tentado;
 
 static void abrir(void) {
-  static const char *nomes[] = { "libwebp.so.7", "libwebp.so", "libwebp.7.dylib", "/opt/homebrew/lib/libwebp.7.dylib", NULL };
+  static const char *nomes[] = {
+    "libwebp.so.7", "libwebp.so", "libwebp.7.dylib", "libwebp.dylib",
+    "@rpath/libwebp.7.dylib", "@rpath/libwebp.dylib", NULL
+  };
   void *h = NULL; int i;
   tentado = 1;
   for (i = 0; nomes[i] && !h; i++) h = dlopen(nomes[i], RTLD_NOW);

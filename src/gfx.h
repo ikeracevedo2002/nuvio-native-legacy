@@ -160,6 +160,10 @@ void gfx_snap_desenhar(void);  // pinta o snapshot ocupando a tela toda
 void gfx_snap_encerrar(void);
 
 void gfx_tamanho_alvo(int w, int h);   // drawable real, para restaurar viewport
+void gfx_viewport(int x, int y, int w, int h);
+void gfx_obter_viewport(int *x, int *y, int *w, int *h);
+// Invalida o estado cacheado depois de uma camada externa usar OpenGL.
+void gfx_estado_externo_alterado(void);
 int  gfx_iniciar(void);
 void gfx_encerrar(void);
 

@@ -18,6 +18,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <limits.h>
+#include <mach-o/dyld.h>
+#include <unistd.h>
+#endif
 #include "gfx.h"
 #include "text.h"
 #include "marco.h"
@@ -259,6 +264,51 @@ EM_ASYNC_JS(void, nv_ceder_quadro, (), {
 });
 #endif
 
+static void configurar_viewport(SDL_Window *win, int *dwOut, int *dhOut) {
+  int dw = 0, dh = 0;
+  int vx = 0, vy = 0, vw, vh;
+  SDL_GL_GetDrawableSize(win, &dw, &dh);
+  if (dw < 1) dw = 1;
+  if (dh < 1) dh = 1;
+  vw = dw; vh = dh;
+#ifdef __APPLE__
+  if ((long long)dw * 9 > (long long)dh * 16) {
+    vw = (dh * 16) / 9;
+    vx = (dw - vw) / 2;
+  } else if ((long long)dw * 9 < (long long)dh * 16) {
+    vh = (dw * 9) / 16;
+    vy = (dh - vh) / 2;
+  }
+#endif
+  gfx_tamanho_alvo(dw, dh);
+  gfx_viewport(vx, vy, vw, vh);
+  capW = dw; capH = dh;
+  if (dwOut) *dwOut = dw;
+  if (dhOut) *dhOut = dh;
+}
+
+#ifdef __APPLE__
+static const char *macos_dir_arte(char *out, size_t cap) {
+  char exe[PATH_MAX];
+  uint32_t n = (uint32_t)sizeof exe;
+  char *contents;
+  if (_NSGetExecutablePath(exe, &n) != 0) return NULL;
+  exe[sizeof exe - 1] = 0;
+  contents = strstr(exe, "/Contents/MacOS/");
+  if (contents) {
+    *contents = 0;
+    snprintf(out, cap, "%s/Contents/Resources/app/art", exe);
+    return out;
+  }
+  // Desenvolvimento fora de .app: o cwd do wrapper e a raiz do checkout.
+  if (access("deploy/app/art", R_OK) == 0) {
+    snprintf(out, cap, "deploy/app/art");
+    return out;
+  }
+  return NULL;
+}
+#endif
+
 int main(int argc, char **argv) {
   // Sem a identidade do app, o SDL do webOS registra a surface como "(null)" e
   // o compositor NAO exibe a janela — o app roda a 60fps desenhando para
@@ -289,9 +339,14 @@ int main(int argc, char **argv) {
   const char *dirArte = NULL;
   if (argc > 1 && argv[1][0] != '{') dirArte = argv[1];
   if (!dirArte) {
+#ifdef __APPLE__
+    dirArte = macos_dir_arte(dirBuf, sizeof dirBuf);
+#endif
+    if (!dirArte) {
     char *base = SDL_GetBasePath();
     if (base) { snprintf(dirBuf, sizeof dirBuf, "%sart", base); SDL_free(base); dirArte = dirBuf; }
     else dirArte = "/tmp/art";
+    }
   }
 
   // O compositor do webOS engole o BACK e abre a barra de apps — a menos que a
@@ -314,7 +369,7 @@ int main(int argc, char **argv) {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-  Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+  Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
 #else
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -351,11 +406,19 @@ int main(int argc, char **argv) {
   // nao muda nada, no Mac (retina) ela e 2 e a previa deixa de mentir.
   SDL_Window *win = SDL_CreateWindow("Nuvio", SDL_WINDOWPOS_CENTERED,
                                      SDL_WINDOWPOS_CENTERED,
+#ifdef __APPLE__
+                                     1280, 720, flags);
+#else
                                      (int)NV_TELA_W, (int)NV_TELA_H, flags);
+#endif
   if (!win) { printf("janela: %s\n", SDL_GetError()); return 1; }
   // App de TV nao tem ponteiro: o cursor por cima da interface polui a leitura
   // e some sozinho no aparelho, mas nao no Mac.
+#ifdef __APPLE__
+  SDL_ShowCursor(SDL_ENABLE);
+#else
   SDL_ShowCursor(SDL_DISABLE);
+#endif
 #ifndef NV_SEM_WEBOS
   // Declara a superficie NAO-opaca. Por padrao o compositor trata a janela como
   // opaca e descarta o canal alpha inteiro — o furo do gfx_furo existiria no
@@ -392,12 +455,11 @@ int main(int argc, char **argv) {
 #endif
   SDL_GLContext ctx = SDL_GL_CreateContext(win);
 #ifdef __APPLE__
-  // Sem vsync no Mac. O SDL2 do Homebrew virou uma camada sobre o SDL3
-  // (sdl2-compat), e nela o SwapWindow fica preso esperando um sinal de vsync
-  // que nunca chega quando a janela nao esta em primeiro plano — o app trava no
-  // primeiro quadro. No aparelho o SDL2 e o de verdade e o vsync fica ligado,
-  // que e o que mantem os 60fps estaveis la.
-  SDL_GL_SetSwapInterval(0);
+  // O limiter manual e o padrao. O vsync pode ser pedido explicitamente para
+  // validar um driver local, mas alguns SDL2-compat bloqueiam fora de foco.
+  if (getenv("NUVIO_MAC_VSYNC") && !strcmp(getenv("NUVIO_MAC_VSYNC"), "1")) {
+    if (SDL_GL_SetSwapInterval(1) != 0) SDL_GL_SetSwapInterval(0);
+  } else SDL_GL_SetSwapInterval(0);
 #else
   SDL_GL_SetSwapInterval(1);
 #endif
@@ -405,7 +467,7 @@ int main(int argc, char **argv) {
   // se o compositor entregar uma superficie 3840x2160 cada camada de tela cheia
   // custa quatro vezes o que a conta de 1080p diz.
   int dw = 0, dh = 0, jw = 0, jh = 0;
-  SDL_GL_GetDrawableSize(win, &dw, &dh);
+  configurar_viewport(win, &dw, &dh);
   SDL_GetWindowSize(win, &jw, &jh);
   printf("GPU: %s | %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
   printf("janela=%dx%d drawable=%dx%d\n", jw, jh, dw, dh);
@@ -509,7 +571,15 @@ int main(int argc, char **argv) {
     // muda), e "para sempre" no Tizen quer dizer IDBFS: em /app/art elas
     // morriam na recarga e a home rebaixava tudo a cada arranque.
     char c[600];
+#ifdef __APPLE__
+    const char *homeCache = getenv("HOME");
+    if (homeCache && *homeCache)
+      snprintf(c, sizeof c, "%s/Library/Caches/Nuvio", homeCache);
+    else
+      snprintf(c, sizeof c, "%s/cache", dirDados);
+#else
     snprintf(c, sizeof c, "%s/cache", dirDados);
+#endif
     tex_cache_dir(c); }
   // Os icones da interface saem de art/icones (SVG do app web rasterizados).
   gfx_icones_dir(dirArte);
@@ -558,7 +628,23 @@ int main(int argc, char **argv) {
     // Enquanto o detalhe existe ele fica com o teclado inteiro: a home
     // continua desenhada por baixo, mas nao deve reagir ao D-pad.
     while (SDL_PollEvent(&e)) {
-      if (e.type == SDL_WINDOWEVENT) continue;
+      if (e.type == SDL_WINDOWEVENT) {
+#ifdef __APPLE__
+        if (e.window.event == SDL_WINDOWEVENT_CLOSE) {
+          SDL_Event quit; SDL_zero(quit); quit.type = SDL_QUIT;
+          app_evento(&quit);
+        } else if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                   e.window.event == SDL_WINDOWEVENT_RESIZED ||
+                   e.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED
+#ifdef SDL_WINDOWEVENT_DPI_CHANGED
+                   || e.window.event == SDL_WINDOWEVENT_DPI_CHANGED
+#endif
+                  ) {
+          configurar_viewport(win, &dw, &dh);
+        }
+#endif
+        continue;
+      }
       // O BACK do webOS chega com scancode proprio (482), nao como AC_BACK, e
       // com KEYDOWN e KEYUP quase juntos — so o KEYDOWN conta. Isto ja tinha
       // sido resolvido uma vez e voltou a quebrar quando limpei os remendos
@@ -576,6 +662,25 @@ int main(int argc, char **argv) {
       // conversao nao tira nada de ninguem.
       if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
         e.key.keysym.sym = SDLK_AC_BACK;
+#endif
+#ifdef __APPLE__
+      if (e.type == SDL_KEYDOWN &&
+          (e.key.keysym.mod & KMOD_GUI) && e.key.keysym.sym == SDLK_q) {
+        SDL_Event quit; SDL_zero(quit); quit.type = SDL_QUIT;
+        app_evento(&quit);
+        continue;
+      }
+      if (e.type == SDL_KEYDOWN &&
+          (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_BACKSPACE))
+        e.key.keysym.sym = SDLK_AC_BACK;
+      if (e.type == SDL_KEYDOWN &&
+          (e.key.keysym.mod & KMOD_GUI) && (e.key.keysym.mod & KMOD_CTRL) &&
+          e.key.keysym.sym == SDLK_f) {
+        Uint32 fs = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+        SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+        configurar_viewport(win, &dw, &dh);
+        continue;
+      }
 #endif
       // TECLA DESCONHECIDA, UMA LINHA CADA, UMA VEZ SO.
       //
@@ -676,6 +781,7 @@ int main(int argc, char **argv) {
     glClearColor(NV_COR_FUNDO_R, NV_COR_FUNDO_G, NV_COR_FUNDO_B, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     fClr = NV_DT(t0);
+    video_render();
     t0 = NV_T0();
     txt_novo_quadro();
     app_desenhar(agora);
@@ -699,6 +805,19 @@ int main(int argc, char **argv) {
     dados_sincronizar();
 #endif
     fSwap = NV_DT(t0);
+#ifdef __APPLE__
+    // O desktop nao depende de vsync para a cadencia. Dormir ate o proximo
+    // frame evita spin a milhares de FPS e reduz o custo quando a janela perde
+    // foco; o relogio de alta resolucao continua sendo a fonte do dt.
+    {
+      Uint32 wf = SDL_GetWindowFlags(win);
+      int foreground = (wf & SDL_WINDOW_INPUT_FOCUS) && !(wf & SDL_WINDOW_MINIMIZED);
+      double alvo = foreground ? (1000.0 / 60.0) : (1000.0 / 15.0);
+      double gasto = (double)(SDL_GetPerformanceCounter() - ultQuadro) * 1000.0 / perFreq;
+      double falta = alvo - gasto;
+      if (falta > 1.0) SDL_Delay((Uint32)(falta - 0.25));
+    }
+#endif
     // PRIMEIRO PIXEL. E o numero que responde "quanto tempo ate a TV mostrar
     // alguma coisa", que nenhuma metrica de quadro dava.
     //
@@ -761,6 +880,7 @@ int main(int argc, char **argv) {
   gfx_borrao_encerrar();
   gfx_snap_encerrar();
   app_encerrar();
+  video_encerrar();
   tex_encerrar();
   txt_encerrar();
   gfx_encerrar();

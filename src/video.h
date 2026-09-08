@@ -30,6 +30,9 @@ int  video_tocar(const char *url);
 // (ver o comentario em video.c): sem esta batida, um arquivo que a TV recusa
 // com DolbyHdrInfo ficaria sem imagem ate o usuario desistir e sair.
 void video_bombear(void);
+// Renderiza o frame no contexto OpenGL atual. Deve ser chamado na thread
+// principal, depois de limpar o framebuffer e antes de desenhar a interface.
+void video_render(void);
 void video_parar(void);
 void video_pausar(int pausado);
 void video_buscar(double segundos);

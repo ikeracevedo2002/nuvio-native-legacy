@@ -1188,6 +1188,11 @@ void player_desenhar(Uint32 agora) {
   // a arte 16:9 de esticar quando a tela nao for exatamente 16:9.
   GfxRect tela = { 0, 0, NV_TELA_W, NV_TELA_H };
   if (player_com_video()) {
+#ifdef __APPLE__
+    // video_render() ja compoe o frame no framebuffer antes da UI. Nao use
+    // gfx_furo neste alvo: ele apaga a textura composta e foi o motivo da
+    // antiga previa macOS ficar preta assim que o player ficava pronto.
+#else
     // O furo acompanha o MESMO retangulo que foi ao plano de hardware, cortado
     // na tela. Furar sempre a tela inteira, como antes, deixava faixa preta nos
     // modos que nao ocupam tudo ("Original" num 2.39:1 entregue como 2.39:1):
@@ -1201,6 +1206,7 @@ void player_desenhar(Uint32 agora) {
     if (furo.w < NV_TELA_W - 0.5f || furo.h < NV_TELA_H - 0.5f)
       gfx_cor(tela, 0.0f, 0, 0, 0, 1.0f);
     if (furo.w > 0.0f && furo.h > 0.0f) gfx_furo(furo);
+#endif
   } else {
     const char *arte = (c && c->backdrop[0]) ? c->backdrop : NULL;
     GLuint tex = arte ? tex_obter_hero(arte) : 0;   // ocupa a tela inteira
