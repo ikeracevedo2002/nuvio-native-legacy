@@ -36,7 +36,7 @@ sed -e "s/@VERSION@/$VERSION/g" -e "s/@MIN_MACOS@/$MIN_MACOS/g" \
   deploy/macos/Info.plist.in > "$APP/Contents/Info.plist"
 
 LIB_DIRS=()
-for module in sdl2 SDL2_image SDL2_ttf libmpv mpv libcurl libwebp; do
+for module in sdl2 sdl3 SDL2_image SDL2_ttf libmpv mpv libcurl libwebp; do
   if pkg-config --exists "$module" 2>/dev/null; then
     libdir=$(pkg-config --variable=libdir "$module" 2>/dev/null || true)
     [[ -n "$libdir" ]] && LIB_DIRS+=("$libdir")
@@ -58,6 +58,16 @@ find_library() {
   done
   return 1
 }
+strip_rpaths() {
+  local item=$1 rpath
+  while IFS= read -r rpath; do
+    [[ -n "$rpath" ]] || continue
+    install_name_tool -delete_rpath "$rpath" "$item"
+  done < <(
+    otool -l "$item" |
+      awk '/cmd LC_RPATH/{getline; getline; sub(/^[[:space:]]*path /, ""); sub(/ \(offset .*/, ""); print}'
+  )
+}
 bundle_deps() {
   local item=$1 dep src base dest
   while IFS= read -r dep; do
@@ -77,14 +87,48 @@ bundle_deps() {
       SEEN+=("$base")
       cp -L "$src" "$dest"
       chmod +x "$dest"
+      strip_rpaths "$dest"
       install_name_tool -id "@rpath/$base" "$dest" 2>/dev/null || true
       bundle_deps "$dest"
     fi
     install_name_tool -change "$dep" "@rpath/$base" "$item" 2>/dev/null || true
   done < <(otool -L "$item" | tail -n +2 | awk '{print $1}')
 }
-install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/Nuvio" 2>/dev/null || true
-bundle_deps "$APP/Contents/MacOS/Nuvio"
+bundle_file() {
+  local src=$1 base=$2 dest="$APP/Contents/Frameworks/$2"
+  if ! already_seen "$base"; then
+    SEEN+=("$base")
+    cp -L "$src" "$dest"
+    chmod +x "$dest"
+    strip_rpaths "$dest"
+    install_name_tool -id "@rpath/$base" "$dest" 2>/dev/null || true
+    bundle_deps "$dest"
+  fi
+}
+MAIN="$APP/Contents/MacOS/Nuvio"
+strip_rpaths "$MAIN"
+install_name_tool -add_rpath '@executable_path/../Frameworks' "$MAIN" 2>/dev/null || true
+bundle_deps "$MAIN"
+
+SDL3_SOURCE=""
+SDL3_NAME=""
+for base in libSDL3.0.dylib libSDL3.dylib; do
+  src=$(find_library "$base" || true)
+  if [[ -n "$src" ]]; then
+    SDL3_SOURCE=$src
+    SDL3_NAME=$base
+    break
+  fi
+done
+[[ -n "$SDL3_SOURCE" ]] || {
+  echo "SDL3 no encontrado en las rutas de pkg-config/SDK del build" >&2
+  exit 1
+}
+bundle_file "$SDL3_SOURCE" "$SDL3_NAME"
+if [[ "$SDL3_NAME" == libSDL3.0.dylib ]]; then
+  ln -s "$SDL3_NAME" "$APP/Contents/Frameworks/libSDL3.dylib"
+fi
+
 # curl e webp sao carregadas por dlopen no legado e, por isso, nao aparecem em
 # otool -L do executavel. Se existirem no ambiente de build, entram no bundle
 # explicitamente e sao descobertas por @rpath no runtime.
