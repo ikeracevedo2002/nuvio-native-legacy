@@ -29,11 +29,11 @@ elif command -v brew >/dev/null; then
 else
   echo "Nenhum gerenciador detectado; forneca SDL2, SDL2_image, SDL2_ttf e libmpv via pkg-config" >&2
 fi
-for module in sdl2 SDL2_image SDL2_ttf; do
+for module in sdl2 sdl3 SDL2_image SDL2_ttf; do
   pkg-config --exists "$module" || { echo "pkg-config nao encontra $module" >&2; exit 1; }
 done
 if ! pkg-config --exists libmpv && ! pkg-config --exists mpv; then
   echo "pkg-config nao encontra libmpv (modulos tentados: libmpv, mpv)" >&2
   exit 1
 fi
-echo "Dependencias de compilacao encontradas. Nenhum caminho do gerenciador sera gravado no bundle."
+echo "Dependencias de compilacao/empacotamento encontradas. Nenhum caminho do gerenciador sera gravado no bundle."
