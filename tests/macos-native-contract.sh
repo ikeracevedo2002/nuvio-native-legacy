@@ -11,6 +11,9 @@ grep -q -- '-isysroot' tools/mac-intel.sh
 grep -q -- '-mmacosx-version-min' tools/mac-intel.sh
 test -f tools/macos-compat/AvailabilityMacros.h
 grep -q 'install_name_tool' tools/package-macos-intel.sh
+grep -q 'libSDL3.0.dylib' tools/package-macos-intel.sh
+grep -q 'strip_rpaths' tools/package-macos-intel.sh
+grep -q 'sdl3' .github/workflows/macos-intel-dmg.yml
 grep -q 'video_encerrar' src/main.c
 if grep -nE '\b(system|popen)\s*\(' src/video_macos.c; then
   echo "backend macOS nao pode iniciar processos externos" >&2
