@@ -135,14 +135,7 @@ fi
 for base in libcurl.4.dylib libcurl.dylib libwebp.7.dylib libwebp.dylib; do
   src=$(find_library "$base" || true)
   [[ -n "$src" ]] || continue
-  dest="$APP/Contents/Frameworks/$base"
-  if ! already_seen "$base"; then
-    SEEN+=("$base")
-    cp -L "$src" "$dest"
-    chmod +x "$dest"
-    install_name_tool -id "@rpath/$base" "$dest" 2>/dev/null || true
-    bundle_deps "$dest"
-  fi
+  bundle_file "$src" "$base"
 done
 if [[ "$DO_SIGN" == 1 ]]; then tools/sign-macos.sh "$APP"; fi
 tools/validate-macos-bundle.sh "$APP"
