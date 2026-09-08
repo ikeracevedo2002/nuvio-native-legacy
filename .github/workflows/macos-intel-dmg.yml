@@ -118,7 +118,7 @@ jobs:
           lipo -info build/Nuvio.app/Contents/Frameworks/libSDL2-2.0.0.dylib
           lipo -info build/Nuvio.app/Contents/Frameworks/libSDL3.dylib
           otool -l build/Nuvio.app/Contents/MacOS/Nuvio | grep -A2 LC_RPATH
-          otool -l build/Nuvio.app/Contents/Frameworks/libSDL2-2.0.0.dylib | grep -A2 LC_RPATH
+          otool -l build/Nuvio.app/Contents/Frameworks/libSDL2-2.0.0.dylib | grep -A2 LC_RPATH || true
           otool -L build/Nuvio.app/Contents/MacOS/Nuvio
           otool -L build/Nuvio.app/Contents/Frameworks/libSDL2-2.0.0.dylib
           otool -L build/Nuvio.app/Contents/Frameworks/libSDL3.dylib
