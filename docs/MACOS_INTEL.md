@@ -108,3 +108,20 @@ La validación completa requiere un Mac Intel con SDL2/libmpv, un archivo local
 y una pantalla. En otros hosts se pueden ejecutar las comprobaciones de shell
 y revisar el diff, pero no se debe declarar pasado el smoke ni la reproducción
 real.
+
+## GitHub Actions y DMG
+
+El workflow `.github/workflows/macos-intel-dmg.yml` usa el runner Intel
+`macos-15-intel`, instala SDL2 y mpv con `libmpv`, compila el binario, crea
+`Nuvio.app` y genera un DMG firmado ad hoc. El DMG queda disponible como
+artefacto de la ejecución durante 14 días.
+
+Se puede ejecutar desde **Actions > macOS Intel DMG > Run workflow**. También
+se ejecuta al hacer push a `macos-intel-x86_64`. Para publicar el DMG como
+asset de una Release, crea un tag `vX.Y.Z` y súbelo a GitHub.
+
+Las credenciales opcionales se leen desde estos secrets del repositorio:
+`NUVIO_SUPABASE_URL`, `NUVIO_SUPABASE_ANON_KEY`, `NUVIO_TV_LOGIN_BASE`,
+`NUVIO_TRAKT_CLIENT_ID`, `NUVIO_TRAKT_CLIENT_SECRET`, `NUVIO_SIMKL_CLIENT_ID`,
+`NUVIO_SIMKL_APP` y `NUVIO_TMDB_API_KEY`. Si no existen, el build sigue siendo
+válido, pero la aplicación no tendrá configuración de login.

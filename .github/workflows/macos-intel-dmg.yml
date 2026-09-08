@@ -1,0 +1,153 @@
+name: macOS Intel DMG
+
+on:
+  push:
+    branches:
+      - macos-intel-x86_64
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version shown in the app and DMG filename'
+        required: false
+        default: '0.1.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-intel-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Intel macOS app and DMG
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      NUVIO_TV_LOGIN_BASE: ${{ secrets.NUVIO_TV_LOGIN_BASE }}
+      NUVIO_TRAKT_CLIENT_ID: ${{ secrets.NUVIO_TRAKT_CLIENT_ID }}
+      NUVIO_TRAKT_CLIENT_SECRET: ${{ secrets.NUVIO_TRAKT_CLIENT_SECRET }}
+      NUVIO_SIMKL_CLIENT_ID: ${{ secrets.NUVIO_SIMKL_CLIENT_ID }}
+      NUVIO_SIMKL_APP: ${{ secrets.NUVIO_SIMKL_APP }}
+      NUVIO_TMDB_API_KEY: ${{ secrets.NUVIO_TMDB_API_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Assert Intel runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = x86_64
+          arch
+          xcode-select -p
+
+      - name: Install native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install pkgconf sdl2 sdl2_image sdl2_ttf mpv
+          brew_prefix="$(brew --prefix)"
+          echo "$brew_prefix/bin" >> "$GITHUB_PATH"
+          echo "PKG_CONFIG_PATH=$brew_prefix/lib/pkgconfig:$brew_prefix/share/pkgconfig" >> "$GITHUB_ENV"
+          pkg-config --modversion sdl2 SDL2_image SDL2_ttf mpv
+
+      - name: Prepare optional build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          property_file="$RUNNER_TEMP/nuvio.local.properties"
+          umask 077
+          {
+            printf 'NUVIO_SUPABASE_URL=%s\n' "$NUVIO_SUPABASE_URL"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "$NUVIO_SUPABASE_ANON_KEY"
+            printf 'TV_LOGIN_WEB_BASE_URL=%s\n' "$NUVIO_TV_LOGIN_BASE"
+            printf 'TRAKT_CLIENT_ID=%s\n' "$NUVIO_TRAKT_CLIENT_ID"
+            printf 'TRAKT_CLIENT_SECRET=%s\n' "$NUVIO_TRAKT_CLIENT_SECRET"
+            printf 'SIMKL_CLIENT_ID=%s\n' "$NUVIO_SIMKL_CLIENT_ID"
+            printf 'SIMKL_APP_NAME=%s\n' "$NUVIO_SIMKL_APP"
+            printf 'TMDB_API_KEY=%s\n' "$NUVIO_TMDB_API_KEY"
+          } > "$property_file"
+          echo "NUVIO_PROPERTIES=$property_file" >> "$GITHUB_ENV"
+
+      - name: Run native static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          bash tests/macos-native-contract.sh
+
+      - name: Select version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ github.event.inputs.version }}"
+            version="${version:-0.1.0}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        shell: bash
+        run: tools/mac-intel.sh --release --no-run
+
+      - name: Package signed app bundle
+        shell: bash
+        run: tools/package-macos-intel.sh --version "$VERSION"
+
+      - name: Create DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_root="$RUNNER_TEMP/nuvio-dmg-root"
+          dmg_name="Nuvio-$VERSION-macos-x86_64.dmg"
+          rm -rf "$dmg_root"
+          mkdir -p "$dmg_root"
+          cp -R build/Nuvio.app "$dmg_root/Nuvio.app"
+          ln -s /Applications "$dmg_root/Applications"
+          hdiutil create \
+            -volname "Nuvio $VERSION" \
+            -srcfolder "$dmg_root" \
+            -ov \
+            -format UDZO \
+            "build/$dmg_name"
+          shasum -a 256 "build/$dmg_name" > "build/$dmg_name.sha256"
+          hdiutil imageinfo "build/$dmg_name" | grep -E 'format:|size:'
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nuvio-macos-Intel-${{ env.VERSION }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/Nuvio-${{ env.VERSION }}-macos-x86_64.dmg
+            build/Nuvio-${{ env.VERSION }}-macos-x86_64.dmg.sha256
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="build/Nuvio-$VERSION-macos-x86_64.dmg"
+          checksum="$dmg.sha256"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$dmg" "$checksum" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$dmg" "$checksum" \
+              --title "Nuvio $VERSION" \
+              --generate-notes
+          fi
