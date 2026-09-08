@@ -28,9 +28,11 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
-      NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-      NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
-      NUVIO_TV_LOGIN_BASE: ${{ secrets.NUVIO_TV_LOGIN_BASE }}
+      # The Nuvio client config is public by design. Repository secrets/variables can
+      # override these defaults for a self-hosted backend without changing source.
+      NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL || vars.NUVIO_SUPABASE_URL || 'https://api.nuvio.tv' }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY || vars.NUVIO_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI' }}
+      NUVIO_TV_LOGIN_BASE: ${{ secrets.NUVIO_TV_LOGIN_BASE || vars.NUVIO_TV_LOGIN_BASE || 'https://nuvio.tv/tv-login' }}
       NUVIO_TRAKT_CLIENT_ID: ${{ secrets.NUVIO_TRAKT_CLIENT_ID }}
       NUVIO_TRAKT_CLIENT_SECRET: ${{ secrets.NUVIO_TRAKT_CLIENT_SECRET }}
       NUVIO_SIMKL_CLIENT_ID: ${{ secrets.NUVIO_SIMKL_CLIENT_ID }}
@@ -64,6 +66,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          for required in NUVIO_SUPABASE_URL NUVIO_SUPABASE_ANON_KEY NUVIO_TV_LOGIN_BASE; do
+            if [[ -z "${!required:-}" ]]; then
+              echo "FATAL: $required no está configurado; se cancela una build sin backend" >&2
+              exit 1
+            fi
+          done
           property_file="$RUNNER_TEMP/nuvio.local.properties"
           umask 077
           {
@@ -105,6 +113,15 @@ jobs:
       - name: Package signed app bundle
         shell: bash
         run: tools/package-macos-intel.sh --version "$VERSION"
+
+      - name: Audit embedded server configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          executable=build/Nuvio.app/Contents/MacOS/Nuvio
+          for value in "$NUVIO_SUPABASE_URL" "$NUVIO_SUPABASE_ANON_KEY" "$NUVIO_TV_LOGIN_BASE"; do
+            strings "$executable" | grep -Fqx "$value"
+          done
 
       - name: Audit SDL3 bundle
         shell: bash
