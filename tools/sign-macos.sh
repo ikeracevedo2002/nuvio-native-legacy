@@ -12,5 +12,5 @@ if [[ -d "$APP/Contents/Frameworks" ]]; then
 fi
 codesign "${ARGS[@]}" "$APP/Contents/MacOS/Nuvio"
 codesign "${ARGS[@]}" "$APP"
-codesign --verify --deep --strict "$APP"
+codesign --verify --deep --strict --verbose=4 "$APP"
 echo "bundle assinado: $APP (identidade $IDENTITY)"
