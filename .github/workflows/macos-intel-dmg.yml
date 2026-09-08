@@ -146,13 +146,14 @@ jobs:
           try:
               output, _ = proc.communicate(timeout=8)
           except subprocess.TimeoutExpired as exc:
-              output = exc.stdout or ""
+              partial = exc.stdout or ""
               proc.terminate()
               try:
-                  proc.wait(timeout=2)
+                  tail, _ = proc.communicate(timeout=2)
               except subprocess.TimeoutExpired:
                   proc.kill()
-                  proc.wait()
+                  tail, _ = proc.communicate()
+              output = partial + tail
           print(output)
           if "Failed loading SDL3 library" in output:
               sys.exit("sdl2-compat no pudo cargar SDL3")
