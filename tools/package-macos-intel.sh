@@ -88,6 +88,7 @@ bundle_deps() {
       cp -L "$src" "$dest"
       chmod +x "$dest"
       strip_rpaths "$dest"
+      install_name_tool -add_rpath '@loader_path' "$dest" 2>/dev/null || true
       install_name_tool -id "@rpath/$base" "$dest" 2>/dev/null || true
       bundle_deps "$dest"
     fi
@@ -101,6 +102,7 @@ bundle_file() {
     cp -L "$src" "$dest"
     chmod +x "$dest"
     strip_rpaths "$dest"
+    install_name_tool -add_rpath '@loader_path' "$dest" 2>/dev/null || true
     install_name_tool -id "@rpath/$base" "$dest" 2>/dev/null || true
     bundle_deps "$dest"
   fi
