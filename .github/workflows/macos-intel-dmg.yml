@@ -124,6 +124,42 @@ jobs:
           otool -L build/Nuvio.app/Contents/Frameworks/libSDL3.dylib
           codesign --verify --deep --strict --verbose=4 build/Nuvio.app
 
+      - name: Run SDL3 loader smoke
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          env = os.environ.copy()
+          env["DYLD_PRINT_LIBRARIES"] = "1"
+          env["DYLD_PRINT_RPATHS"] = "1"
+          proc = subprocess.Popen(
+              ["build/Nuvio.app/Contents/MacOS/Nuvio"],
+              env=env,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              text=True,
+          )
+          try:
+              output, _ = proc.communicate(timeout=8)
+          except subprocess.TimeoutExpired as exc:
+              output = exc.stdout or ""
+              proc.terminate()
+              try:
+                  proc.wait(timeout=2)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait()
+          print(output)
+          if "Failed loading SDL3 library" in output:
+              sys.exit("sdl2-compat no pudo cargar SDL3")
+          if "Contents/Frameworks/libSDL3" not in output:
+              sys.exit("SDL3 no se cargo desde el Frameworks del bundle")
+          PY
+
       - name: Create DMG
         shell: bash
         run: |
