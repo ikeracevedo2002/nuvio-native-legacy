@@ -122,8 +122,14 @@ Se puede ejecutar desde **Actions > macOS Intel DMG > Run workflow**. También
 se ejecuta al hacer push a `macos-intel-x86_64`. Para publicar el DMG como
 asset de una Release, crea un tag `vX.Y.Z` y súbelo a GitHub.
 
-Las credenciales opcionales se leen desde estos secrets del repositorio:
-`NUVIO_SUPABASE_URL`, `NUVIO_SUPABASE_ANON_KEY`, `NUVIO_TV_LOGIN_BASE`,
-`NUVIO_TRAKT_CLIENT_ID`, `NUVIO_TRAKT_CLIENT_SECRET`, `NUVIO_SIMKL_CLIENT_ID`,
-`NUVIO_SIMKL_APP` y `NUVIO_TMDB_API_KEY`. Si no existen, el build sigue siendo
-válido, pero la aplicación no tendrá configuración de login.
+La configuración pública del cliente se toma por defecto de Nuvio:
+`https://api.nuvio.tv`, la clave Supabase con rol `anon` y
+`https://nuvio.tv/tv-login`. Los valores `NUVIO_SUPABASE_URL`,
+`NUVIO_SUPABASE_ANON_KEY` y `NUVIO_TV_LOGIN_BASE` pueden sobrescribirse con
+secrets o variables del repositorio para un backend propio. La anon key es una
+clave pública de cliente, no una `service_role`; la build falla antes de
+compilar si la configuración requerida queda vacía.
+
+Los secrets opcionales adicionales son `NUVIO_TRAKT_CLIENT_ID`,
+`NUVIO_TRAKT_CLIENT_SECRET`, `NUVIO_SIMKL_CLIENT_ID`, `NUVIO_SIMKL_APP` y
+`NUVIO_TMDB_API_KEY`.

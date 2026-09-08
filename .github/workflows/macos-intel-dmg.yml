@@ -178,6 +178,30 @@ jobs:
               sys.exit("SDL3 no se cargo desde el Frameworks del bundle")
           PY
 
+      - name: Launch isolated app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          isolated_root="$RUNNER_TEMP/nuvio-isolated"
+          isolated_app="$isolated_root/Nuvio.app"
+          rm -rf "$isolated_root"
+          mkdir -p "$isolated_root"
+          cp -R build/Nuvio.app "$isolated_app"
+          open -n "$isolated_app"
+          app_pid=""
+          for _ in {1..20}; do
+            app_pid="$(pgrep -f "$isolated_app/Contents/MacOS/Nuvio" | head -1 || true)"
+            [[ -n "$app_pid" ]] && break
+            sleep 1
+          done
+          [[ -n "$app_pid" ]] || {
+            echo "FATAL: open no inició el bundle aislado" >&2
+            exit 1
+          }
+          sleep 8
+          kill "$app_pid" 2>/dev/null || true
+          echo "bundle aislado iniciado correctamente desde $isolated_app"
+
       - name: Create DMG
         shell: bash
         run: |
