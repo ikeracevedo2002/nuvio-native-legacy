@@ -28,7 +28,9 @@ bash tools/mac-intel.sh
 ```
 
 El compilador recibe siempre `-arch x86_64`, sin `-march=native` ni
-`-mcpu=native`. El binario resultante aparece en
+`-mcpu=native`, y recibe el SDK de macOS mediante `-isysroot`. El proyecto
+incluye un shim para `AvailabilityMacros.h`, que SDL2 todavía incluye pero
+que Xcode 16 ya no instala con ese nombre. El binario resultante aparece en
 `build/macos-x86_64/Debug/Nuvio` y se comprueba con `file` y `otool -L`.
 
 La ventana es redimensionable, conserva el área lógica 16:9, deja el cursor

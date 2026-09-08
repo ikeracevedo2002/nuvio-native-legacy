@@ -7,6 +7,8 @@ grep -q 'mpv_render_context_render' src/video_macos.c
 grep -q 'SDL_GL_GetProcAddress' tests/macos_libmpv_smoke.c
 grep -q 'Contents/Resources/app/art' src/main.c tools/package-macos-intel.sh
 grep -q -- '-arch x86_64' tools/mac-intel.sh
+grep -q -- '-isysroot' tools/mac-intel.sh
+test -f tools/macos-compat/AvailabilityMacros.h
 grep -q 'install_name_tool' tools/package-macos-intel.sh
 grep -q 'video_encerrar' src/main.c
 if grep -nE '\b(system|popen)\s*\(' src/video_macos.c; then
