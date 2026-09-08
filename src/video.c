@@ -74,7 +74,7 @@ void video_normalizar_url_legenda(const char *url, char *dst, unsigned tam) {
 // a guarda para o topo obrigaria a duplica-los no video_tizen.c, e duas copias
 // de uma tabela e uma copia para divergir da outra.
 // ============================================================================
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__APPLE__)
 
 // Declarada aqui porque o loadCompleted a chama muito antes de ela ser
 // definida. O clang do Mac aceita a implicita; o gcc do ARM recusa — e o ARM
@@ -132,56 +132,6 @@ static int       fioMkvVivo;
 // abertura e fazer o load correto ser ignorado.
 static unsigned  sessao;
 
-#ifdef __APPLE__
-// No Mac nao existe barramento nem plano de video. Os cotos deixam o resto do
-// app compilar e rodar igual, so sem imagem em movimento.
-int  video_iniciar(void) { return 0; }
-int  video_tocar(const char *u) { (void)u; return 0; }
-void video_bombear(void) {}
-void video_parar(void) {}
-void video_pausar(int p) { (void)p; }
-void video_buscar(double s) { (void)s; }
-void video_janela(int x,int y,int w,int h) { (void)x;(void)y;(void)w;(void)h; }
-// Coto que FALTAVA: a funcao existia so no ramo do aparelho, entao o build do
-// Mac quebrava no link com "_video_janela_fonte, referenced from
-// _aplicarAspecto". E o espelho da armadilha ja conhecida — o Mac nao compila a
-// metade do pipeline, e por isso nao valida `video.c`; aqui ele cobra a
-// declaracao que a outra metade nao tem. Toda funcao nova de video precisa
-// aparecer NOS DOIS ramos.
-void video_janela_fonte(int sx,int sy,int sw,int sh,int dx,int dy,int dw,int dh) {
-  (void)sx;(void)sy;(void)sw;(void)sh;(void)dx;(void)dy;(void)dw;(void)dh;
-}
-double video_pos(void) { return 0; }
-double video_duracao(void) { return 0; }
-// Sem pipeline nao ha arquivo para ler capitulos: no Mac o pos-reproducao cai
-// no plano B dos ultimos minutos, que e o mesmo caminho de um MKV sem
-// capitulos. Melhor um stub honesto que um numero inventado.
-double video_creditos(void) { return 0.0; }
-double video_buffer_fim(void) { return 0; }
-void video_definir_dv(int dv) { (void)dv; }
-int  video_tocando(void) { return 0; }
-int  video_pronto(void) { return 0; }
-int  video_ativo(void) { return 0; }
-int  video_n_audio(void) { return 0; }
-int  video_n_legenda(void) { return 0; }
-const VideoFaixa *video_audio(int i) { (void)i; return 0; }
-const VideoFaixa *video_legenda(int i) { (void)i; return 0; }
-int  video_audio_atual(void) { return 0; }
-int  video_legenda_atual(void) { return -1; }
-void video_escolher_audio(int i) { (void)i; }
-void video_escolher_legenda(int i) { (void)i; }
-void video_legenda_externa(const char *u) { (void)u; }
-void video_legenda_estilo(const VideoLegendaEstilo *e) { (void)e; }
-void video_definir_mp4(int m) { (void)m; }
-int  video_tem_atmos(void) { return 0; }
-int  video_tem_dolby_vision(void) { return 0; }
-const char *video_hdr(void) { return "none"; }
-int  video_largura(void) { return 0; }
-int  video_altura(void) { return 0; }
-int  video_pode_forcar_sdr(void) { return 0; }
-void video_forcar_sdr(void) {}
-void video_encerrar(void) {}
-#else
 #include <dlfcn.h>
 
 typedef struct LSHandle LSHandle;
@@ -1342,6 +1292,10 @@ static int tocarInterno(const char *url, int comDV) {
   return 1;
 }
 
+void video_render(void) {
+  // webOS compoe o video no plano de hardware atras da superficie GL.
+}
+
 void video_parar(void) {
   char b[128];
   // Invalida tambem a sessao que ainda esta esperando o retorno de load. Esse
@@ -1717,6 +1671,4 @@ void video_encerrar(void) {
   if (laco) loopParar(laco);
   ligado = 0;
 }
-#endif
-
-#endif  /* !__EMSCRIPTEN__ */
+#endif  /* !__EMSCRIPTEN__ && !__APPLE__ */

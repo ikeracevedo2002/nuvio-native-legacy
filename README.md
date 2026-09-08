@@ -51,10 +51,16 @@ stripping — whoever installs it sees the packager's catalogue before signing i
 ## Building
 
 ```bash
-bash tools/mac.sh              # build and run on macOS (UI only, no video)
+bash tools/mac.sh              # build and run natively on Intel macOS + libmpv
+bash tools/mac-intel.sh --no-run
+bash tools/macos-libmpv-smoke.sh /path/to/video.mp4
 bash tools/arm.sh              # cross-compile in Docker, deploy over ssh
 bash tools/arm.sh --ipk        # also produce the .ipk
 ```
+
+The Intel macOS port is documented in [docs/MACOS_INTEL.md](docs/MACOS_INTEL.md).
+It requires SDL2/libmpv development packages discoverable through `pkg-config`;
+the runtime `.app` bundles its non-system dylibs under `Contents/Frameworks`.
 
 Server URLs and client ids are **not in the source**. They travel from a
 `local.properties` file to the compiler command line through `tools/env.sh`; the

@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __APPLE__
+#include <sys/stat.h>
+#endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
@@ -110,11 +113,19 @@ const char *registro_arquivo(void) {
     resolvido = 1;
     if (env && env[0]) snprintf(caminho, sizeof caminho, "%s", env);
 #ifdef __APPLE__
-    // No Mac o log vai para o TERMINAL e continua assim: redirecionar por
-    // padrao deixaria a previa muda para quem esta rodando tools/mac.sh, que e
-    // o jeito normal de trabalhar aqui. Para exercitar o painel na previa:
-    //     NUVIO_LOG=/tmp/nuvio.log bash tools/mac.sh
-    else caminho[0] = 0;
+    // O log sobrevive a reinicios do .app, mas NUVIO_LOG continua permitindo
+    // apontar para o terminal/um arquivo temporario durante desenvolvimento.
+    else {
+      const char *home = getenv("HOME");
+      if (home && *home) {
+        char pasta[256];
+        snprintf(pasta, sizeof pasta, "%s/Library/Logs", home);
+        mkdir(pasta, 0755);
+        snprintf(pasta, sizeof pasta, "%s/Library/Logs/Nuvio", home);
+        mkdir(pasta, 0755);
+        snprintf(caminho, sizeof caminho, "%s/nuvio.log", pasta);
+      } else caminho[0] = 0;
+    }
 #else
     else snprintf(caminho, sizeof caminho, "/tmp/nuvio.log");
 #endif

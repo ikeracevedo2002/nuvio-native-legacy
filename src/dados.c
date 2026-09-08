@@ -6,6 +6,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#ifdef __APPLE__
+#include <dirent.h>
+#endif
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -168,6 +171,56 @@ void dados_marcar_sujo(int leve) {
 static char dir[512];
 static char clienteId[64];
 
+static void mkdirs(const char *path) {
+  char buf[600];
+  char *p;
+  if (!path || !*path) return;
+  snprintf(buf, sizeof buf, "%s", path);
+  for (p = buf + 1; *p; p++) {
+    if (*p != '/') continue;
+    *p = 0;
+    mkdir(buf, 0755);
+    *p = '/';
+  }
+  mkdir(buf, 0755);
+}
+
+#ifdef __APPLE__
+static void copiar_arquivo(const char *src, const char *dst) {
+  FILE *in, *out;
+  char buf[8192];
+  size_t n;
+  if (access(dst, F_OK) == 0) return;
+  in = fopen(src, "rb");
+  if (!in) return;
+  out = fopen(dst, "wb");
+  if (!out) { fclose(in); return; }
+  while ((n = fread(buf, 1, sizeof buf, in)) > 0)
+    if (fwrite(buf, 1, n, out) != n) break;
+  fclose(out);
+  fclose(in);
+}
+
+static void migrar_legacy_macos(const char *legacy, const char *novo) {
+  DIR *d;
+  struct dirent *e;
+  struct stat st;
+  char src[700], dst[700];
+  if (access(legacy, F_OK) != 0 || access(novo, F_OK) == 0) return;
+  mkdirs(novo);
+  d = opendir(legacy);
+  if (!d) return;
+  while ((e = readdir(d)) != NULL) {
+    if (e->d_name[0] == '.') continue;
+    snprintf(src, sizeof src, "%s/%s", legacy, e->d_name);
+    snprintf(dst, sizeof dst, "%s/%s", novo, e->d_name);
+    if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) copiar_arquivo(src, dst);
+  }
+  closedir(d);
+  printf("[dados] migracao conservadora ~/.nuvio -> %s concluida\n", novo);
+}
+#endif
+
 // Tenta criar a pasta e escrever nela. Criar nao basta: em varios pontos do
 // sistema de arquivos do aparelho o mkdir passa e o open falha depois, e um
 // teste que so olha o mkdir escolheria uma pasta onde nada e gravado.
@@ -175,7 +228,7 @@ static int serve(const char *candidato) {
   char teste[600];
   FILE *f;
   if (!candidato || !*candidato) return 0;
-  mkdir(candidato, 0755);   // ja existir nao e erro para o que interessa aqui
+  mkdirs(candidato);         // inclui ~/Library/Application Support no Mac
   snprintf(teste, sizeof teste, "%s/.escrita", candidato);
   f = fopen(teste, "w");
   if (!f) return 0;
@@ -186,10 +239,13 @@ static int serve(const char *candidato) {
 }
 
 void dados_iniciar(const char *dirArte) {
-  char lar[512];
   const char *env = getenv("NUVIO_DADOS");
   const char *home = getenv("HOME");
-  const char *candidatos[5];
+  const char *candidatos[7];
+  char legacy[512];
+#ifdef __APPLE__
+  char macDir[512];
+#endif
   int n = 0, i;
 
 #ifdef __EMSCRIPTEN__
@@ -218,8 +274,13 @@ void dados_iniciar(const char *dirArte) {
 #endif
   if (env && *env) candidatos[n++] = env;
   if (home && *home) {
-    snprintf(lar, sizeof lar, "%s/.nuvio", home);
-    candidatos[n++] = lar;
+    snprintf(legacy, sizeof legacy, "%s/.nuvio", home);
+#ifdef __APPLE__
+    snprintf(macDir, sizeof macDir, "%s/Library/Application Support/Nuvio", home);
+    migrar_legacy_macos(legacy, macDir);
+    candidatos[n++] = macDir;
+#endif
+    candidatos[n++] = legacy;
   }
   // Pasta de trabalho do modo desenvolvedor do webOS. Existe e e gravavel nos
   // aparelhos onde este app roda hoje; num aparelho de loja pode nao existir, e

@@ -13,14 +13,36 @@ typedef struct {
 } Programa;
 static Programa progs[GFX_NMODOS];
 static int progAtual = -1;
+static GLuint gfxQuadVbo = 0;
 // Proporcao da textura corrente, para o "cover". Fica global porque o desenho e
 // imediato: quem chama define antes de cada rect com textura.
 float gfx_tex_aspect_atual = 0.0f;
 float gfx_opacidade_grupo = 1.0f;
 // Tamanho real do alvo da tela (em retina, maior que 1920x1080). Guardado aqui
-// porque toda volta de FBO precisa restaurar o viewport com ele.
+// porque toda volta de FBO precisa restaurar o viewport com ele. telaX/telaY
+// permitem que o desktop preserve a proporcao 16:9 dentro de uma janela
+// redimensionavel sem deformar a UI nem o video.
+static int telaX = 0, telaY = 0;
 static int telaW = (int)NV_TELA_W, telaH = (int)NV_TELA_H;
-void gfx_tamanho_alvo(int w, int h) { telaW = w; telaH = h; }
+void gfx_tamanho_alvo(int w, int h) {
+  telaX = telaY = 0;
+  telaW = w > 0 ? w : 1;
+  telaH = h > 0 ? h : 1;
+}
+
+void gfx_viewport(int x, int y, int w, int h) {
+  telaX = x; telaY = y;
+  telaW = w > 0 ? w : 1;
+  telaH = h > 0 ? h : 1;
+  glViewport(telaX, telaY, telaW, telaH);
+}
+
+void gfx_obter_viewport(int *x, int *y, int *w, int *h) {
+  if (x) *x = telaX;
+  if (y) *y = telaY;
+  if (w) *w = telaW;
+  if (h) *h = telaH;
+}
 
 static GLuint snapFbo = 0, snapTex = 0;
 static int snapW = 0, snapH = 0;
@@ -537,9 +559,8 @@ int gfx_iniciar(void) {
   // restaurar por quadro.
   {
     static const GLfloat quad[] = { 0,0, 1,0, 0,1, 1,1 };
-    GLuint vbo = 0;
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glGenBuffers(1, &gfxQuadVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gfxQuadVbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (const void *)0);
@@ -562,12 +583,36 @@ void gfx_encerrar(void) {
   for (int m = 0; m < GFX_NMODOS; m++)
     if (progs[m].prog) { glDeleteProgram(progs[m].prog); progs[m].prog = 0; }
   progAtual = -1;
+  if (gfxQuadVbo) { glDeleteBuffers(1, &gfxQuadVbo); gfxQuadVbo = 0; }
 }
 
 // Ultima textura vista no bind. O driver ate ignora rebind do mesmo nome, mas
 // so depois de pagar a entrada na chamada — e num quadro cheio de texto a
 // MESMA textura de glifo e desenhada varias vezes seguida.
 static GLuint texAtual = 0;
+
+void gfx_estado_externo_alterado(void) {
+  // video_macos.c e outras camadas de composicao usam GL diretamente. Os
+  // caches e o estado do gfx precisam ser invalidados antes do proximo quad;
+  // caso contrario a UI pode acreditar que o programa/textura ainda estao
+  // ligados e desenhar no FBO ou com o blending do compositor.
+  progAtual = -1;
+  texAtual = 0;
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glViewport(telaX, telaY, telaW, telaH);
+  glDisable(GL_SCISSOR_TEST);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
+  glEnable(GL_BLEND);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                      GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+  glActiveTexture(GL_TEXTURE0);
+  if (gfxQuadVbo) {
+    glBindBuffer(GL_ARRAY_BUFFER, gfxQuadVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (const void *)0);
+  }
+}
 
 // Chamar quando uma textura e destruida (o nome pode ser reutilizado por
 // glGenTextures) ou quando alguem deu glBindTexture por fora do gfx_rect
@@ -697,7 +742,7 @@ void gfx_snap_terminar(void) {
   if (!snapFbo) return;
   GFX_OUTRO_INI();
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, telaW, telaH);
+  glViewport(telaX, telaY, telaW, telaH);
   GFX_OUTRO_FIM();
 }
 
@@ -750,9 +795,9 @@ void gfx_recorte(float x, float y, float w, float h) {
   //    cobria um quarto da area pedida — o menu lateral perdia os dois
   //    primeiros itens e os rotulos saiam cortados no meio da palavra.
   float ex = (float)telaW / NV_TELA_W, ey = (float)telaH / NV_TELA_H;
-  int yy = (int)((NV_TELA_H - (y + h)) * ey);
+  int yy = telaY + (int)((NV_TELA_H - (y + h)) * ey);
   glEnable(GL_SCISSOR_TEST);
-  glScissor((int)(x * ex), yy, (int)(w * ex), (int)(h * ey));
+  glScissor(telaX + (int)(x * ex), yy, (int)(w * ex), (int)(h * ey));
   GFX_OUTRO_FIM();
 }
 void gfx_sem_recorte(void) { glDisable(GL_SCISSOR_TEST); }
@@ -811,7 +856,7 @@ void gfx_borrao_gerar(int via, unsigned int tex, float texAspecto) {
 
   glEnable(GL_BLEND);
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, telaW, telaH);
+  glViewport(telaX, telaY, telaW, telaH);
   GFX_OUTRO_FIM();
 }
 

@@ -336,6 +336,8 @@ static int abrir(void) {
   pronto = -1;
   h = dlopen("libcurl.so.5", RTLD_NOW);
   if (!h) h = dlopen("libcurl.so.4", RTLD_NOW);
+  if (!h) h = dlopen("@rpath/libcurl.4.dylib", RTLD_NOW);
+  if (!h) h = dlopen("@rpath/libcurl.dylib", RTLD_NOW);
   if (!h) h = dlopen("libcurl.4.dylib", RTLD_NOW);   // Mac
   if (!h) h = dlopen("libcurl.dylib", RTLD_NOW);
   if (!h) { printf("[rede] sem libcurl: %s\n", dlerror());
