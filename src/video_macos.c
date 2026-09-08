@@ -267,9 +267,9 @@ static void apply_style(void) {
   set_property("sub-back-color", V.style.fundo ? num : "#00000000");
 }
 
-static void property_changed(mpv_event_property *p) {
+static void property_changed(mpv_event_property *p, uint64_t reply_userdata) {
   if (!p || !p->data) return;
-  switch ((intptr_t)p->reply_userdata) {
+  switch ((intptr_t)reply_userdata) {
     case NV_MPVEV_POS:
       if (p->format == MPV_FORMAT_DOUBLE) V.pos = *(double *)p->data;
       break;
@@ -325,11 +325,13 @@ static void drain_events(void) {
         refresh_metadata();
         break;
       case MPV_EVENT_PROPERTY_CHANGE:
-        property_changed((mpv_event_property *)ev->data);
+        property_changed((mpv_event_property *)ev->data, ev->reply_userdata);
         break;
+#ifdef MPV_EVENT_BUFFERING
       case MPV_EVENT_BUFFERING:
         V.buffering = 1;
         break;
+#endif
       case MPV_EVENT_END_FILE:
         V.ready = 0;
         V.active = 0;

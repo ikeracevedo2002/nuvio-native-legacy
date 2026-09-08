@@ -635,8 +635,11 @@ int main(int argc, char **argv) {
           app_evento(&quit);
         } else if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
                    e.window.event == SDL_WINDOWEVENT_RESIZED ||
-                   e.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED ||
-                   e.window.event == SDL_WINDOWEVENT_DPI_CHANGED) {
+                   e.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED
+#ifdef SDL_WINDOWEVENT_DPI_CHANGED
+                   || e.window.event == SDL_WINDOWEVENT_DPI_CHANGED
+#endif
+                  ) {
           configurar_viewport(win, &dw, &dh);
         }
 #endif

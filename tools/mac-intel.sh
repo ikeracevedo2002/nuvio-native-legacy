@@ -24,6 +24,7 @@ command -v xcrun >/dev/null || { echo "faltan Xcode Command Line Tools" >&2; exi
 command -v pkg-config >/dev/null || { echo "falta pkg-config" >&2; exit 1; }
 CC=${CC:-$(xcrun --find clang)}
 SDKROOT=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
+MACOS_MIN_VERSION=${MACOS_MIN_VERSION:-10.13}
 PKG_MODULES=(sdl2 SDL2_image SDL2_ttf)
 if pkg-config --exists libmpv; then PKG_MODULES+=(libmpv)
 elif pkg-config --exists mpv; then PKG_MODULES+=(mpv)
@@ -54,6 +55,7 @@ mkdir -p "$OUT_DIR"
 if [[ "$BUILD_KIND" == Release ]]; then OPT=(-O2 -DNDEBUG)
 else OPT=(-O0 -g3 -fno-omit-frame-pointer); fi
 CFLAGS=(-std=c99 -arch x86_64 -isysroot "$SDKROOT"
+  -mmacosx-version-min="$MACOS_MIN_VERSION"
   -I"$ROOT/tools/macos-compat" -I"$ROOT/src"
   -DNV_HAS_LIBMPV=1 "${OPT[@]}")
 echo "[mac] compilando $OUT"
