@@ -46,7 +46,7 @@ LIB_DIRS+=(/opt/local/lib /opt/homebrew/lib /usr/local/lib)
 SEEN=()
 already_seen() {
   local want=$1 item
-  for item in "${SEEN[@]}"; do [[ "$item" == "$want" ]] && return 0; done
+  for item in "${SEEN[@]-}"; do [[ "$item" == "$want" ]] && return 0; done
   return 1
 }
 find_library() {
